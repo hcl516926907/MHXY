@@ -1,0 +1,12 @@
+{
+  "hotkey": "f9",
+  "roi_ratios": {
+    "left": 0.35,
+    "top": 0.28,
+    "right": 0.76,
+    "bottom": 0.75
+  },
+  "ocr_confidence_threshold": 0.7,
+  "use_gpu": false,
+  "output_dir": "data"
+}

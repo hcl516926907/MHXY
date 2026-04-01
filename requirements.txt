@@ -1,0 +1,13 @@
+# 梦幻西游商城价格扫描工具 依赖
+# 安装命令：pip install -r requirements.txt
+#
+# 注意：paddlepaddle-gpu 需要单独安装，根据你的 CUDA 版本选择：
+#   CUDA 11.8：pip install paddlepaddle-gpu==2.6.1.post118 -f https://www.paddlepaddle.org.cn/whl/windows/mkl/avx/stable.html
+#   CUDA 12.3：pip install paddlepaddle-gpu==2.6.1.post120 -f https://www.paddlepaddle.org.cn/whl/windows/mkl/avx/stable.html
+# 如不确定 CUDA 版本，运行：nvcc --version 或 nvidia-smi
+
+mss>=9.0
+opencv-python>=4.8
+paddleocr>=2.7
+keyboard>=0.13
+pywin32>=306
