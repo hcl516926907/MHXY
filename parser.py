@@ -2,11 +2,11 @@ import re
 from collections import Counter
 from typing import List, Optional, Tuple
 
-# Pure Chinese characters (no digits, no punctuation)
-_CHINESE_ONLY = re.compile(r"^[\u4e00-\u9fff\u3400-\u4dbf]+$")
+# Chinese characters, optionally joined by middle dot "·" (e.g. 神行飞剑·精华)
+_CHINESE_ONLY = re.compile(r"^[\u4e00-\u9fff\u3400-\u4dbf\u00b7·]+$")
 
 # UI labels that are NOT item names (quality badges, category tags, etc.)
-_UI_LABELS = {"珍品", "精品", "普通", "极品", "套装"}
+_UI_LABELS = {"珍品", "精品", "普通", "极品", "套装", "单价"}
 
 # Price: digits optionally separated by commas or periods (OCR sometimes
 # misreads "," as "."), e.g. "188,666" / "188.666" / "1888666"

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(find c:UserschengOneDrive文档Gamemhxy -type f -name *)",
+      "Bash(python -c \"import sys; print\\(sys.executable\\); print\\(sys.version\\)\")",
+      "Bash(conda list:*)",
+      "Bash(conda info:*)",
+      "Bash(/c/Users/cheng/anaconda3/Scripts/conda.exe info:*)",
+      "Bash(/c/Users/cheng/anaconda3/python.exe -c \"import pkg_resources; pkgs = [p.project_name for p in pkg_resources.working_set]; print\\(''''\\\\n''''.join\\(sorted\\(pkgs\\)\\)\\)\")"
+    ]
+  }
+}

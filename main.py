@@ -36,9 +36,10 @@ from capture import find_game_window, capture_window, crop_item_grid, save_debug
 from ocr import recognize
 from parser import parse_page
 from storage import save_result
+from servers import select_server
 
 
-def scan(config: dict):
+def scan(config: dict, server_name: str, server_open_dt):
     print("\n[扫描中...]")
 
     # 1. 找游戏窗口
@@ -104,13 +105,27 @@ def scan(config: dict):
     print(f"  商品数量：{len(prices)}")
 
     # 7. 保存到 CSV
-    filepath = save_result(item_name, prices, config["output_dir"])
+    filepath = save_result(item_name, prices, config["output_dir"], server_name, server_open_dt)
     print(f"  已保存：{filepath}")
+
+
+def _clear_debug_folder():
+    debug_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug")
+    if os.path.isdir(debug_dir):
+        removed = 0
+        for fname in os.listdir(debug_dir):
+            if fname.lower().endswith((".png", ".jpg", ".jpeg", ".bmp")):
+                os.remove(os.path.join(debug_dir, fname))
+                removed += 1
+        if removed:
+            print(f"[初始化] 已清除 debug/ 中 {removed} 张旧截图。")
 
 
 def main():
     config = load_config()
     hotkey = config.get("hotkey", "f9")
+
+    _clear_debug_folder()
 
     print("=" * 50)
     print("  梦幻西游 商城价格扫描工具")
@@ -129,7 +144,10 @@ def main():
     get_ocr(use_gpu=config.get("use_gpu", True))
     print("OCR 模型加载完成，可以开始扫描。\n")
 
-    keyboard.add_hotkey(hotkey, scan, args=(config,))
+    server_name, server_open_dt = select_server()
+    print()
+
+    keyboard.add_hotkey(hotkey, scan, args=(config, server_name, server_open_dt))
     keyboard.wait("esc")
     print("\n程序已退出。")
 
