@@ -44,7 +44,7 @@ def parse_page(
             continue
 
         # --- Item name detection ---
-        if _CHINESE_ONLY.match(text) and len(text) >= 2 and text not in _UI_LABELS:
+        if _CHINESE_ONLY.match(text) and len(text) >= 1 and text not in _UI_LABELS:
             item_name_candidates.append(text)
 
     # The item name is whichever Chinese phrase appears most often on this page

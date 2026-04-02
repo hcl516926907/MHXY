@@ -62,9 +62,19 @@ def crop_item_grid(img: np.ndarray, roi_ratios: dict) -> np.ndarray:
     return img[top:bottom, left:right]
 
 
+_debug_enabled: bool = True
+
+
+def set_debug_enabled(enabled: bool) -> None:
+    global _debug_enabled
+    _debug_enabled = enabled
+
+
 def save_debug_image(img: np.ndarray, label: str = "debug"):
     """Save an image to the debug folder for ROI verification.
     Uses imencode+Python file I/O to avoid cv2.imwrite's lack of Unicode path support."""
+    if not _debug_enabled:
+        return ""
     debug_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug")
     os.makedirs(debug_dir, exist_ok=True)
     from datetime import datetime

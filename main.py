@@ -32,11 +32,12 @@ import cv2
 import keyboard
 
 from config import load_config
-from capture import find_game_window, capture_window, crop_item_grid, save_debug_image
+from capture import find_game_window, capture_window, crop_item_grid, save_debug_image, set_debug_enabled
 from ocr import recognize
 from parser import parse_page
 from storage import save_result
 from servers import select_server
+from auto_scan import auto_scan
 
 
 def scan(config: dict, server_name: str, server_open_dt):
@@ -90,11 +91,11 @@ def scan(config: dict, server_name: str, server_open_dt):
     item_name, prices = parse_page(texts)
 
     if not prices:
-        print("[警告] 未识别到任何价格。")
+        print("[警告] 未识别到任何价格（货架为空或 ROI 未覆盖商品列表）。")
         print("  请检查：")
         print("  1. ROI 区域是否覆盖商品列表（查看 debug/ 目录中的截图）")
         print("  2. 如需调整，修改 config.json 中的 roi_ratios 值")
-        return
+        return False
 
     avg_price = sum(prices) / len(prices)
 
@@ -107,6 +108,7 @@ def scan(config: dict, server_name: str, server_open_dt):
     # 7. 保存到 CSV
     filepath = save_result(item_name, prices, config["output_dir"], server_name, server_open_dt)
     print(f"  已保存：{filepath}")
+    return True
 
 
 def _clear_debug_folder():
@@ -130,7 +132,9 @@ def main():
     print("=" * 50)
     print("  梦幻西游 商城价格扫描工具")
     print("=" * 50)
-    print(f"  热键：{hotkey.upper()} — 扫描当前页价格")
+    auto_scan_hotkey = config.get("auto_scan_hotkey", "f10")
+    print(f"  热键：{hotkey.upper()} — 手动扫描当前页价格")
+    print(f"  热键：{auto_scan_hotkey.upper()} — 自动扫描所有目标商品")
     print(f"  退出：ESC")
     print(f"  ROI：{config['roi_ratios']}")
     print(f"  GPU：{'是' if config.get('use_gpu') else '否'}")
@@ -144,10 +148,20 @@ def main():
     get_ocr(use_gpu=config.get("use_gpu", True))
     print("OCR 模型加载完成，可以开始扫描。\n")
 
+    debug_ans = input("是否生成 debug 调试图片？[y/N] ").strip().lower()
+    set_debug_enabled(debug_ans == "y")
+    print(f"  调试图片：{'开启' if debug_ans == 'y' else '关闭'}")
+
     server_name, server_open_dt = select_server()
-    print()
+    print(f"\n按 {hotkey.upper()} 手动扫描当前页，按 {auto_scan_hotkey.upper()} 自动扫描所有目标商品。\n")
 
     keyboard.add_hotkey(hotkey, scan, args=(config, server_name, server_open_dt))
+    def _auto_scan_and_exit():
+        auto_scan(config, server_name, server_open_dt, scan)
+        print("\n[自动扫描] 已完成，程序退出。")
+        os._exit(0)
+
+    keyboard.add_hotkey(auto_scan_hotkey, _auto_scan_and_exit)
     keyboard.wait("esc")
     print("\n程序已退出。")
 
