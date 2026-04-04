@@ -164,9 +164,9 @@ def auto_scan(
                     click(hwnd, cx, cy)
                     time.sleep(scan_wait)
 
-                    found = scan_fn(config, server_name, server_open_dt)
+                    found = scan_fn(config, server_name, server_open_dt, category=parent)
                     if found is False:
-                        na_path = save_na_result(target, config["output_dir"], server_name, server_open_dt)
+                        na_path = save_na_result(target, config["output_dir"], server_name, server_open_dt, category=parent)
                         print(f"      货架为空，已记录 NA：{na_path}")
 
                     _click_back_via_ocr(hwnd, parent, config)

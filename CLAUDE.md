@@ -85,5 +85,5 @@ for 每个父分类:
 ### CSV 格式
 
 文件名：`YYYYMMDD_服务器名.csv`
-列：`timestamp | server_name | open_date | item_name | avg_price | min_price | count | prices_raw | days_open`
+列：`timestamp | server_name | open_date | item_name | category | avg_price | min_price | count | prices_raw | days_open`
 

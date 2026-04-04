@@ -40,7 +40,7 @@ from servers import select_server
 from auto_scan import auto_scan
 
 
-def scan(config: dict, server_name: str, server_open_dt):
+def scan(config: dict, server_name: str, server_open_dt, category: str = ""):
     print("\n[扫描中...]")
 
     # 1. 找游戏窗口
@@ -106,7 +106,7 @@ def scan(config: dict, server_name: str, server_open_dt):
     print(f"  商品数量：{len(prices)}")
 
     # 7. 保存到 CSV
-    filepath = save_result(item_name, prices, config["output_dir"], server_name, server_open_dt)
+    filepath = save_result(item_name, prices, config["output_dir"], server_name, server_open_dt, category)
     print(f"  已保存：{filepath}")
     return True
 

@@ -6,10 +6,12 @@ from typing import List, Optional
 
 def _csv_path(output_dir: str, server_name: str) -> str:
     today = datetime.now().strftime("%Y%m%d")
-    return os.path.join(output_dir, f"{today}_{server_name}.csv")
+    day_dir = os.path.join(output_dir, today)
+    os.makedirs(day_dir, exist_ok=True)
+    return os.path.join(day_dir, f"{today}_{server_name}.csv")
 
 
-_HEADER = ["timestamp", "server_name", "open_date", "item_name",
+_HEADER = ["timestamp", "server_name", "open_date", "item_name", "category",
            "avg_price", "min_price", "count", "prices_raw", "days_open"]
 
 
@@ -19,6 +21,7 @@ def save_result(
     output_dir: str,
     server_name: str = "未知",
     server_open_dt=None,
+    category: str = "",
 ) -> str:
     """
     Compute average/min price and append one row to today's CSV file.
@@ -44,7 +47,7 @@ def save_result(
         if not file_exists:
             writer.writerow(_HEADER)
         writer.writerow(
-            [timestamp, server_name, open_date, item_name or "未知",
+            [timestamp, server_name, open_date, item_name or "未知", category,
              avg_price, min_price, len(prices), prices_raw, days_open]
         )
 
@@ -56,6 +59,7 @@ def save_na_result(
     output_dir: str,
     server_name: str = "未知",
     server_open_dt=None,
+    category: str = "",
 ) -> str:
     """货架为空时写入一行 NA 记录，与 save_result 共用同一 CSV 文件。"""
     os.makedirs(output_dir, exist_ok=True)
@@ -72,7 +76,7 @@ def save_na_result(
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(_HEADER)
-        writer.writerow([timestamp, server_name, open_date, item_name,
+        writer.writerow([timestamp, server_name, open_date, item_name, category,
                          "NA", "NA", 0, "NA", days_open])
 
     return filepath
