@@ -45,11 +45,18 @@ DOW_STROKED: dict = {}
 
 _VBA_CHART_AXIS = """\
 Private Sub Worksheet_Change(ByVal Target As Range)
-    If Intersect(Target, Me.Range("B1:B2")) Is Nothing Then Exit Sub
     Application.EnableEvents = False
     On Error GoTo done
-    Application.Calculate
-    UpdateYAxis
+
+    If Not Intersect(Target, Me.Range("B3")) Is Nothing Then
+        FilterItems CStr(Me.Range("B3").Value)
+    End If
+
+    If Not Intersect(Target, Me.Range("B1:B2")) Is Nothing Then
+        Application.Calculate
+        UpdateYAxis
+    End If
+
 done:
     Application.EnableEvents = True
 End Sub
@@ -58,6 +65,77 @@ Private Sub Worksheet_Activate()
     On Error Resume Next
     Application.Calculate
     UpdateYAxis
+End Sub
+
+Private Sub FilterItems(keyword As String)
+    Dim wsResult As Worksheet
+    Dim wsItems  As Worksheet
+
+    On Error Resume Next
+    Set wsResult = ThisWorkbook.Worksheets("搜索结果")
+    Set wsItems  = ThisWorkbook.Worksheets("商品列表")
+    On Error GoTo 0
+
+    If wsResult Is Nothing Or wsItems Is Nothing Then Exit Sub
+
+    wsResult.Cells.Clear
+
+    Dim lastRow As Long
+    lastRow = wsItems.Cells(wsItems.Rows.Count, 1).End(xlUp).Row
+
+    Dim resultRow As Long
+    resultRow = 1
+    Dim kw As String
+    kw = Trim(keyword)
+
+    Dim i As Long
+    For i = 1 To lastRow
+        Dim nm As String
+        nm = CStr(wsItems.Cells(i, 1).Value)
+        If kw = "" Or InStr(1, nm, kw, vbTextCompare) > 0 Then
+            wsResult.Cells(resultRow, 1).Value = nm
+            resultRow = resultRow + 1
+        End If
+    Next i
+
+    ' 无匹配时恢复全量列表
+    If resultRow = 1 Then
+        wsItems.Range(wsItems.Cells(1, 1), wsItems.Cells(lastRow, 1)).Copy wsResult.Cells(1, 1)
+        resultRow = lastRow + 1
+    End If
+
+    Dim matchCount As Long
+    matchCount = resultRow - 1
+
+    ' 更新 B1 下拉验证到过滤结果
+    With Me.Range("B1").Validation
+        .Delete
+        .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, _
+             Operator:=xlBetween, Formula1:="=搜索结果!$A$1:$A$" & matchCount
+        .IgnoreBlank = True
+        .InCellDropdown = True
+        .ShowInput = True
+        .ShowError = False
+    End With
+
+    ' 若当前 B1 值不在过滤结果中，自动选中第一个匹配项
+    Dim curVal As String
+    curVal = CStr(Me.Range("B1").Value)
+    Dim found As Boolean
+    found = False
+    Dim j As Long
+    For j = 1 To matchCount
+        If CStr(wsResult.Cells(j, 1).Value) = curVal Then
+            found = True
+            Exit For
+        End If
+    Next j
+
+    If Not found Then
+        Me.Range("B1").Value = wsResult.Cells(1, 1).Value
+        Application.Calculate
+        UpdateYAxis
+    End If
 End Sub
 
 Private Sub UpdateYAxis()
@@ -346,26 +424,45 @@ def build_price_trend_xlsx(df_raw: pd.DataFrame) -> None:
 
     # ── 控制区（行 1-2）────────────────────────────────────────────────────
     CTRL_BG = "E8F0FE"
-    for label, row_i, default, dv_formula in [
-        ("商品名：",   1, items[0],  f"=商品列表!$A$1:$A${n_items}"),
-        ("价格类型：", 2, "最低价",  '"最低价,均价"'),
-    ]:
-        lc = ws_chart.cell(row=row_i, column=1, value=label)
-        lc.fill = fill(CTRL_BG)
-        lc.font = myfont(bold=True, size=11)
-        lc.alignment = Alignment(horizontal="right", vertical="center")
-        lc.border = b_all
 
-        vc = ws_chart.cell(row=row_i, column=2, value=default)
-        vc.fill = fill("FFFFFF")
-        vc.font = myfont(bold=True, size=11, color="1B4F8A")
-        vc.alignment = center
-        vc.border = b_all
-        ws_chart.row_dimensions[row_i].height = 22
+    # 行 1：商品名下拉（指向"搜索结果"Sheet，VBA 动态过滤后更新）
+    lc1 = ws_chart.cell(row=1, column=1, value="商品名：")
+    lc1.fill = fill(CTRL_BG); lc1.font = myfont(bold=True, size=11)
+    lc1.alignment = Alignment(horizontal="right", vertical="center"); lc1.border = b_all
 
-        dv = DataValidation(type="list", formula1=dv_formula, allow_blank=False)
-        dv.sqref = f"B{row_i}"
-        ws_chart.add_data_validation(dv)
+    vc1 = ws_chart.cell(row=1, column=2, value=items[0])
+    vc1.fill = fill("FFFFFF"); vc1.font = myfont(bold=True, size=11, color="1B4F8A")
+    vc1.alignment = center; vc1.border = b_all
+    ws_chart.row_dimensions[1].height = 22
+
+    dv1 = DataValidation(type="list", formula1=f"=搜索结果!$A$1:$A${n_items}", allow_blank=False)
+    dv1.sqref = "B1"
+    ws_chart.add_data_validation(dv1)
+
+    # 行 2：价格类型下拉
+    lc2 = ws_chart.cell(row=2, column=1, value="价格类型：")
+    lc2.fill = fill(CTRL_BG); lc2.font = myfont(bold=True, size=11)
+    lc2.alignment = Alignment(horizontal="right", vertical="center"); lc2.border = b_all
+
+    vc2 = ws_chart.cell(row=2, column=2, value="最低价")
+    vc2.fill = fill("FFFFFF"); vc2.font = myfont(bold=True, size=11, color="1B4F8A")
+    vc2.alignment = center; vc2.border = b_all
+    ws_chart.row_dimensions[2].height = 22
+
+    dv2 = DataValidation(type="list", formula1='"最低价,均价"', allow_blank=False)
+    dv2.sqref = "B2"
+    ws_chart.add_data_validation(dv2)
+
+    # 行 3：搜索栏（输入关键字过滤 B1 下拉列表，由 VBA 响应）
+    SEARCH_BG = "FFF9E6"
+    lc3 = ws_chart.cell(row=3, column=1, value="搜索商品：")
+    lc3.fill = fill(SEARCH_BG); lc3.font = myfont(bold=True, size=11)
+    lc3.alignment = Alignment(horizontal="right", vertical="center"); lc3.border = b_all
+
+    vc3 = ws_chart.cell(row=3, column=2, value="")
+    vc3.fill = fill("FFFDE0"); vc3.font = myfont(size=11, color="7A5800")
+    vc3.alignment = left_a; vc3.border = b_all
+    ws_chart.row_dimensions[3].height = 22
 
     ws_chart.column_dimensions["A"].width = 14
     ws_chart.column_dimensions["B"].width = 18
@@ -625,12 +722,20 @@ def build_price_trend_xlsx(df_raw: pd.DataFrame) -> None:
     ws_data.freeze_panes = "A2"
 
     # ════════════════════════════════════════════════════════════════════════
-    # Sheet 3: 商品列表（隐藏，供下拉验证用）
+    # Sheet 3: 商品列表（隐藏，全量商品，VBA 搜索时作为源）
     # ════════════════════════════════════════════════════════════════════════
     ws_items = wb.create_sheet("商品列表")
     for ri, name in enumerate(items, start=1):
         ws_items.cell(row=ri, column=1, value=name)
     ws_items.sheet_state = "hidden"
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Sheet 4: 搜索结果（隐藏，初始=全量商品列表；VBA 按关键字动态过滤后写入）
+    # ════════════════════════════════════════════════════════════════════════
+    ws_search = wb.create_sheet("搜索结果")
+    for ri, name in enumerate(items, start=1):
+        ws_search.cell(row=ri, column=1, value=name)
+    ws_search.sheet_state = "hidden"
 
     # ── 保存 ──────────────────────────────────────────────────────────────
     os.makedirs(ANALYSIS_ROOT, exist_ok=True)
