@@ -967,11 +967,11 @@ def build_price_trend_xlsx(df_raw: pd.DataFrame) -> None:
     def myfont(bold=False, size=10, color="1A1A1A"):
         return Font(name="微软雅黑", bold=bold, color=color, size=size)
 
-    # 星期相关常量（圆/方/三角/菱形/×/加/横线 → 周一~周日）
+    # 星期相关常量（圆/方/三角/菱形/×/加/五角星 → 周一~周日）
     DOW_LABELS   = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-    DOW_MARKERS  = ["circle", "square", "triangle", "diamond", "x", "plus", "dash"]
-    # 描边标记（只有边线，无实心区域）：x, plus, dash, dot
-    DOW_STROKED  = {"x", "plus", "dash", "dot"}
+    DOW_MARKERS  = ["circle", "square", "triangle", "diamond", "x", "plus", "star"]
+    # 描边标记（只有边线，无实心区域）：x, plus, star
+    DOW_STROKED  = {}
     # 标记辅助列起始（1-based，紧接服务器列之后）
     MARKER_START_COL = n_servers + 2
 
