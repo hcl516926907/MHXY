@@ -43,20 +43,7 @@ auto_scan.py  → 自动扫描主循环
   - `inertia=True`：立即抬起，游戏引擎触发惯性继续滑动（**不用于回到顶部**，因为截图时动画可能未结束导致坐标错位）
 - 坐标使用**客户区坐标**，`client_to_screen()` 转换为屏幕绝对坐标后再操作
 
-### config.json 关键配置项
 
-```json
-"target_categories": {"父分类名": ["子商品1", "子商品2", ...]},
-"category_roi_ratios": {"left", "top", "right", "bottom"},  // 右侧子商品面板 OCR 区域
-"back_roi_ratios":     {"left", "top", "right", "bottom"},  // 左侧父分类导航 OCR 区域
-"drag_ratio":          {"x", "y_start", "y_end"},           // 子商品列表翻页拖拽
-"scroll_to_top_ratio": {"y_start", "y_end"},                // 回到顶部拖拽（距离更大）
-"scroll_to_top_times": 4,       // 回到顶部拖拽次数
-"items_per_page": 6,            // 每页条目数，扫满后强制拖拽一次
-"scan_wait": 1.0,               // 点击子商品后等待加载
-"back_wait": 0.6,               // 点击返回后等待
-"drag_wait": 1.0                // 每次拖拽后等待
-```
 
 ### 自动扫描主循环（auto_scan.py）
 

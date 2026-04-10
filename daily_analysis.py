@@ -42,6 +42,7 @@ from paths import DATA_ROOT, ANALYSIS_ROOT
 from arbitrage import load_all_source_csvs, aggregate_market, build_analysis, export_xlsx
 from history import build_history_xlsx
 from price_trend import build_price_trend_xlsx
+from dashboard import build_dashboard_html
 
 
 def prompt_date() -> str:
@@ -131,6 +132,10 @@ def main():
     # 价格趋势折线图报表
     print("\n生成价格趋势报表…")
     build_price_trend_xlsx(df)
+
+    # HTML Dashboard
+    print("\n生成 HTML Dashboard…")
+    build_dashboard_html(df, date_str)
 
 
 if __name__ == "__main__":

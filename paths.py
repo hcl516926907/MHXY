@@ -4,4 +4,5 @@ import os
 ROOT_DIR      = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT     = os.path.join(ROOT_DIR, "data")
 ANALYSIS_ROOT = os.path.join(ROOT_DIR, "analysis")
-HISTORY_XLSX  = os.path.join(ANALYSIS_ROOT, "top_opportunities_history.xlsx")
+HISTORY_XLSX   = os.path.join(ANALYSIS_ROOT, "top_opportunities_history.xlsx")
+DASHBOARD_HTML = os.path.join(ANALYSIS_ROOT, "dashboard.html")
