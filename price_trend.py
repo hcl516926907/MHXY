@@ -319,6 +319,24 @@ def _post_process_chart_xml(xlsx_path: str, n_servers: int) -> None:
         xml
     )
 
+    # 5. 图例项去重：删除 openpyxl 生成的所有 legendEntry（其 delete 标志 Excel 不总遵从），
+    #    改在 XML 层直接为 si>0 的 DOW 标记系列插入 <delete val="1"/>
+    _total_ser = n_servers + n_servers * 7
+    # 删除现有全部 legendEntry 元素（无论来源）
+    xml = _re.sub(
+        rf'<{c}legendEntry\b[^>]*>.*?</{c}legendEntry>',
+        '',
+        xml,
+        flags=_re.DOTALL,
+    )
+    # 只为 si>0 的 DOW 系列（索引 n_servers+7 起）插入 delete 条目
+    _del_entries = ''.join(
+        f'<{c}legendEntry><{c}idx val="{_i}"/><{c}delete val="1"/></{c}legendEntry>'
+        for _i in range(n_servers + 7, _total_ser)
+    )
+    if _del_entries:
+        xml = xml.replace(f'</{c}legend>', _del_entries + f'</{c}legend>', 1)
+
     files[chart_files[0]] = xml.encode("utf-8")
 
     buf2 = io.BytesIO()
@@ -602,7 +620,7 @@ def build_price_trend_xlsx(df_raw: pd.DataFrame) -> None:
             xMode="edge", yMode="edge",
             wMode="edge", hMode="edge",
             x=0.05, y=0.05,
-            w=0.97, h=0.90,
+            w=0.97, h=0.80,
         )
     )
 
@@ -631,13 +649,19 @@ def build_price_trend_xlsx(df_raw: pd.DataFrame) -> None:
     chart.legend.position = "b"
     chart.legend.overlay  = False
 
-    # 图例去重：隐藏 si>0 的 DOW 标记系列（只保留 si=0 的 7 条周一~周日）
+    # 图例去重：只保留服务器折线（前 n_servers 条）+ si=0 的 7 条 DOW 标记系列
+    # 使用白名单方式：为所有系列显式声明 LegendEntry，避免 title=None 被 Excel 自动命名为"系列N"
     from openpyxl.chart.legend import LegendEntry
-    for _hide_idx in range(n_servers + 7, n_servers + n_servers * 7):
+    _total_series = n_servers + n_servers * 7
+    _legend_entries = []
+    for _idx in range(_total_series):
         _le = LegendEntry()
-        _le.idx = _hide_idx
-        _le.delete = True
-        chart.legend.legendEntry.append(_le)
+        _le.idx = _idx
+        # 保留：服务器折线(0..n_servers-1) 和 si=0 的 DOW 标记(n_servers..n_servers+6)
+        # 隐藏：si>0 的 DOW 标记(n_servers+7 起)
+        _le.delete = _idx >= n_servers + 7
+        _legend_entries.append(_le)
+    chart.legend.legendEntry = _legend_entries
 
     # x 轴数值（开服天数，实际数字）
     x_ref = Reference(ws_chart,
@@ -671,7 +695,7 @@ def build_price_trend_xlsx(df_raw: pd.DataFrame) -> None:
                               min_row=FIRST_DATA_ROW,
                               max_row=FIRST_DATA_ROW + n_days - 1)
             ser = Series(y_ref, xvalues=x_ref,
-                         title=(dow_label if si == 0 else None))
+                         title=(dow_label if si == 0 else " "))
 
             ser.graphicalProperties.line.noFill = True   # 无连接线
             ser.smooth = False
