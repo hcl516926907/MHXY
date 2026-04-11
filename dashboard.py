@@ -351,11 +351,11 @@ td:first-child, td:nth-child(2), td:nth-child(3) { text-align: left; }
     <span class="srv-item"><span class="srv-line" style="background:#CC3311"></span>飞天</span>
     <span class="legend-sep"></span>
     <div class="dow-items">
-      <span><span class="dow-sym" style="font-size:17px">&#9679;</span>周一</span>
+      <span><span class="dow-sym" style="font-size:20px">&#9679;</span>周一</span>
       <span><span class="dow-sym">&#9632;</span>周二</span>
       <span><span class="dow-sym">&#9650;</span>周三</span>
       <span><span class="dow-sym">&#9670;</span>周四</span>
-      <span><span class="dow-sym" style="font-size:15px;font-weight:700">&#10005;</span>周五</span>
+      <span><svg width="12" height="12" viewBox="0 0 14 14" style="vertical-align:middle;margin-right:3px"><line x1="2" y1="2" x2="12" y2="12" stroke="#57606a" stroke-width="3.5" stroke-linecap="round"/><line x1="12" y1="2" x2="2" y2="12" stroke="#57606a" stroke-width="3.5" stroke-linecap="round"/></svg>周五</span>
       <span><span class="dow-sym">&#10010;</span>周六</span>
       <span><span class="dow-sym">&#9733;</span>周日</span>
     </div>
@@ -499,7 +499,7 @@ function updateChart() {
       line:   { color: DATA_PRICE.colors[server], width: 2 },
       marker: {
         symbol: pts.map(p => DOW_SYMBOLS[p.dow] || 'circle'),
-        size:   9,
+        size:   pts.map(p => ({'周三':15,'周日':15})[p.dow] || 12),
         color:  DATA_PRICE.colors[server],
         line:   { width: 1, color: '#fff' }
       },
