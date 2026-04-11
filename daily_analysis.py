@@ -26,8 +26,7 @@
 
 模块说明：
   arbitrage.py   —— 套利计算 + 每日 xlsx 报表
-  history.py     —— top_opportunities_history 历史汇总
-  price_trend.py —— 价格趋势折线图报表
+  dashboard.py   —— HTML Dashboard 生成（输出至 gh-pages/index.html）
   paths.py       —— 共享路径常量
 """
 
@@ -41,8 +40,6 @@ import pandas as pd
 
 from paths import DATA_ROOT, ANALYSIS_ROOT
 from arbitrage import load_all_source_csvs, aggregate_market, build_analysis, export_xlsx
-from history import build_history_xlsx
-from price_trend import build_price_trend_xlsx
 from dashboard import build_dashboard_html
 
 
@@ -125,14 +122,6 @@ def main():
         print(tradeable[cols].head(20).to_string(index=False))
     else:
         print("\n暂无套利机会。")
-
-    # 更新历史汇总
-    print("\n更新历史汇总报表…")
-    build_history_xlsx()
-
-    # 价格趋势折线图报表
-    print("\n生成价格趋势报表…")
-    build_price_trend_xlsx(df)
 
     # HTML Dashboard
     print("\n生成 HTML Dashboard…")
