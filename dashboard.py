@@ -13,6 +13,7 @@ import re
 import pandas as pd
 
 from paths import ANALYSIS_ROOT, DASHBOARD_HTML
+from arbitrage import FREEZE_DAYS_BY_CATEGORY, DEFAULT_FREEZE_DAYS
 
 _SERVERS = ["大吉大利", "天命", "心动", "飞天"]
 _SERVER_COLORS = {
@@ -51,8 +52,12 @@ def _build_price_json(df_raw: pd.DataFrame) -> dict:
 
     items = sorted(df["item_name"].unique())
     data = {}
+    freeze = {}  # item_name -> 冻结天数
     for item in items:
         idf = df[df["item_name"] == item]
+        # 取该商品的分类，查冻结天数
+        category = idf["category"].iloc[0] if "category" in idf.columns else ""
+        freeze[item] = FREEZE_DAYS_BY_CATEGORY.get(category, DEFAULT_FREEZE_DAYS)
         data[item] = {}
         for server in _SERVERS:
             sdf = idf[idf["server_name"] == server].sort_values("days_open")
@@ -66,7 +71,7 @@ def _build_price_json(df_raw: pd.DataFrame) -> dict:
                 for _, r in sdf.iterrows()
             ]
 
-    return {"items": items, "servers": _SERVERS, "colors": _SERVER_COLORS, "data": data}
+    return {"items": items, "servers": _SERVERS, "colors": _SERVER_COLORS, "data": data, "freeze": freeze}
 
 
 def _v(row, col, cast=float):
@@ -350,6 +355,11 @@ td:first-child, td:nth-child(2), td:nth-child(3) { text-align: left; }
     <span class="srv-item"><span class="srv-line" style="background:#009E73"></span>心动</span>
     <span class="srv-item"><span class="srv-line" style="background:#CC3311"></span>飞天</span>
     <span class="legend-sep"></span>
+    <span class="srv-item">
+      <span style="display:inline-block;width:18px;height:14px;background:rgba(180,180,180,0.45);border:1px solid #aaa;border-radius:2px;vertical-align:middle"></span>
+      冻结期（无法出售）
+    </span>
+    <span class="legend-sep"></span>
     <div class="dow-items">
       <span><span class="dow-sym" style="font-size:20px">&#9679;</span>周一</span>
       <span><span class="dow-sym">&#9632;</span>周二</span>
@@ -507,10 +517,26 @@ function updateChart() {
     });
   }
 
+  // 冻结期阴影：取心动服最新天数作为起点
+  const xindongPts = DATA_PRICE.data[item]['\u5fc3\u52a8'] || [];
+  const shapes = [];
+  if (xindongPts.length > 0) {
+    const x0 = Math.max(...xindongPts.map(p => p.x));
+    const freeze = DATA_PRICE.freeze[item] || 7;
+    shapes.push({
+      type: 'rect', xref: 'x', yref: 'paper',
+      x0: x0, x1: x0 + freeze,
+      y0: 0,  y1: 1,
+      fillcolor: 'rgba(180,180,180,0.25)',
+      line: { width: 0 }
+    });
+  }
+
   const layout = {
     xaxis: { title: '\u670d\u52a1\u5668\u5929\u6570', gridcolor: '#eaeef2', zeroline: false },
-    yaxis: { title: '\u4ef7\u683c\uff08\u94dc\u677f\uff09', tickformat: ',.0f', gridcolor: '#eaeef2', zeroline: false },
+    yaxis: { title: { text: '\u4ef7\u683c', standoff: 20 }, tickformat: ',.0f', gridcolor: '#eaeef2', zeroline: false },
     showlegend: false,
+    shapes: shapes,
     margin: { t: 20, r: 20, b: 60, l: 90 },
     paper_bgcolor: '#fff',
     plot_bgcolor:  '#fff',
