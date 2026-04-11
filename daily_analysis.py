@@ -34,6 +34,7 @@
 import os
 import glob
 import re
+import subprocess
 from datetime import datetime
 
 import pandas as pd
@@ -136,6 +137,29 @@ def main():
     # HTML Dashboard
     print("\n生成 HTML Dashboard…")
     build_dashboard_html(df, date_str)
+
+    # 推送 gh-pages（询问用户，默认否）
+    gh_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gh-pages")
+    if os.path.isdir(gh_dir):
+        ans = input("\n是否推送 Dashboard 到 GitHub Pages？(y/默认 N)：").strip().lower()
+        if ans == "y":
+            print("推送中…")
+            try:
+                subprocess.run(["git", "-C", gh_dir, "add", "index.html"], check=True)
+                result = subprocess.run(
+                    ["git", "-C", gh_dir, "diff", "--cached", "--quiet"])
+                if result.returncode != 0:
+                    subprocess.run(["git", "-C", gh_dir, "commit",
+                                     "-m", f"data: {date_str}"], check=True)
+                    subprocess.run(["git", "-C", gh_dir, "push",
+                                     "origin", "gh-pages"], check=True)
+                    print("  Dashboard 已推送：https://hcl516926907.github.io/MHXY/")
+                else:
+                    print("  index.html 无变化，跳过推送。")
+            except subprocess.CalledProcessError as e:
+                print(f"  [警告] 推送失败，请手动推送：{e}")
+        else:
+            print("  跳过推送。")
 
 
 if __name__ == "__main__":
