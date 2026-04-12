@@ -105,14 +105,11 @@ def _build_history_json() -> dict:
 
         dates.append(entry)
         for freeze in [30, 7]:
-            subset = (df[df["冻结天数"] == freeze]
-                      .sort_values("收益率%_min", ascending=False)
-                      .head(5))
-            for rank, (_, row) in enumerate(subset.iterrows(), start=1):
+            subset = df[df["冻结天数"] == freeze]
+            for _, row in subset.iterrows():
                 all_rows.append({
                     "date":       entry,
                     "freeze":     freeze,
-                    "rank":       rank,
                     "item":       str(row.get("商品名", "")),
                     "category":   str(row.get("分类", "")),
                     "buy_day":    _v(row, "买入天数", int),
@@ -224,14 +221,20 @@ thead th {
   background: #f6f8fa; font-weight: 600; padding: 8px 12px;
   text-align: right; white-space: nowrap;
   border-bottom: 1px solid #d0d7de; }
-thead th:first-child, thead th:nth-child(2), thead th:nth-child(3) { text-align: left; }
+thead th:first-child, thead th:nth-child(2) { text-align: left; }
 tbody tr:nth-child(even) { background: #f6f8fa; }
 tbody tr:hover { background: #ddf4ff; }
 td { padding: 7px 12px; text-align: right; white-space: nowrap;
      border-bottom: 1px solid #eaeef2; }
-td:first-child, td:nth-child(2), td:nth-child(3) { text-align: left; }
+td:first-child, td:nth-child(2) { text-align: left; }
 .profit-pos { color: #1a7f37; font-weight: 600; }
 .profit-neg { color: #cf222e; }
+
+/* ── 可排序列头 ── */
+thead th[data-col] { cursor: pointer; user-select: none; }
+thead th[data-col]:hover { background: #eaeef2; }
+thead th.sort-desc::after { content: ' \u25bc'; font-size: 10px; color: #0969da; }
+thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da; }
 
 /* ── 图表区 ── */
 .chart-legend-bar {
@@ -280,28 +283,31 @@ td:first-child, td:nth-child(2), td:nth-child(3) { text-align: left; }
   <div class="controls">
     <label>日期：</label>
     <select id="arb-date" onchange="renderArbitrage()" style="min-width:120px"></select>
+    <label>30天显示：</label>
+    <input type="number" id="limit-30" value="5" min="1" max="999" style="width:60px" oninput="renderArbitrage()">
+    <label>7天显示：</label>
+    <input type="number" id="limit-7" value="5" min="1" max="999" style="width:60px" oninput="renderArbitrage()">
   </div>
   <div class="two-tables">
     <!-- 30天冻结 -->
     <div class="freeze-section f30">
-      <h3>30天冻结（Top 5）</h3>
+      <h3>30天冻结</h3>
       <div class="tbl-wrap">
         <table>
-          <thead><tr>
-            <th>排名</th>
-            <th>商品名</th>
-            <th>分类</th>
-            <th>买入天数</th>
-            <th>卖出天数</th>
-            <th>天数差</th>
-            <th>买入价(最低)</th>
-            <th>卖出价(最低)</th>
-            <th>利润(最低)</th>
-            <th>收益率%(最低)</th>
-            <th>买入价(均价)</th>
-            <th>卖出价(均价)</th>
-            <th>利润(均价)</th>
-            <th>收益率%(均价)</th>
+          <thead id="arb-30-head"><tr>
+            <th data-col="item">商品名</th>
+            <th data-col="category">分类</th>
+            <th data-col="buy_day">买入天数</th>
+            <th data-col="sell_day">卖出天数</th>
+            <th data-col="diff">天数差</th>
+            <th data-col="buy_min">买入价(最低价)</th>
+            <th data-col="sell_min">卖出价(最低价)</th>
+            <th data-col="profit_min">利润(最低价)</th>
+            <th data-col="roi_min">收益率%(最低价)</th>
+            <th data-col="buy_avg">买入价(均价)</th>
+            <th data-col="sell_avg">卖出价(均价)</th>
+            <th data-col="profit_avg">利润(均价)</th>
+            <th data-col="roi_avg">收益率%(均价)</th>
           </tr></thead>
           <tbody id="arb-30-body"></tbody>
         </table>
@@ -309,24 +315,23 @@ td:first-child, td:nth-child(2), td:nth-child(3) { text-align: left; }
     </div>
     <!-- 7天冻结 -->
     <div class="freeze-section f7">
-      <h3>7天冻结（Top 5）</h3>
+      <h3>7天冻结</h3>
       <div class="tbl-wrap">
         <table>
-          <thead><tr>
-            <th>排名</th>
-            <th>商品名</th>
-            <th>分类</th>
-            <th>买入天数</th>
-            <th>卖出天数</th>
-            <th>天数差</th>
-            <th>买入价(最低)</th>
-            <th>卖出价(最低)</th>
-            <th>利润(最低)</th>
-            <th>收益率%(最低)</th>
-            <th>买入价(均价)</th>
-            <th>卖出价(均价)</th>
-            <th>利润(均价)</th>
-            <th>收益率%(均价)</th>
+          <thead id="arb-7-head"><tr>
+            <th data-col="item">商品名</th>
+            <th data-col="category">分类</th>
+            <th data-col="buy_day">买入天数</th>
+            <th data-col="sell_day">卖出天数</th>
+            <th data-col="diff">天数差</th>
+            <th data-col="buy_min">买入价(最低价)</th>
+            <th data-col="sell_min">卖出价(最低价)</th>
+            <th data-col="profit_min">利润(最低价)</th>
+            <th data-col="roi_min">收益率%(最低价)</th>
+            <th data-col="buy_avg">买入价(均价)</th>
+            <th data-col="sell_avg">卖出价(均价)</th>
+            <th data-col="profit_avg">利润(均价)</th>
+            <th data-col="roi_avg">收益率%(均价)</th>
           </tr></thead>
           <tbody id="arb-7-body"></tbody>
         </table>
@@ -399,15 +404,47 @@ function fmtDate(d) {
 }
 
 // ── 套利机会总览 ──────────────────────────────────────────────────────────────
-function renderFreezeTable(tbodyId, rows) {
-  const tbody = document.getElementById(tbodyId);
-  if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="14" class="empty-cell">\u6682\u65e0\u6570\u636e</td></tr>';
+const sortState = {
+  30: { col: 'roi_min', dir: 'desc' },
+  7:  { col: 'roi_min', dir: 'desc' }
+};
+const numericCols = new Set([
+  'buy_day','sell_day','diff',
+  'buy_min','sell_min','profit_min','roi_min',
+  'buy_avg','sell_avg','profit_avg','roi_avg'
+]);
+
+function sortRows(rows, col, dir) {
+  return [...rows].sort((a, b) => {
+    const va = a[col], vb = b[col];
+    if (numericCols.has(col)) {
+      const na = (va == null || isNaN(va)) ? -Infinity : +va;
+      const nb = (vb == null || isNaN(vb)) ? -Infinity : +vb;
+      return dir === 'desc' ? nb - na : na - nb;
+    }
+    return dir === 'desc'
+      ? String(vb).localeCompare(String(va), 'zh')
+      : String(va).localeCompare(String(vb), 'zh');
+  });
+}
+
+function renderFreezeTable(freeze, rows) {
+  const state  = sortState[freeze];
+  const limit  = parseInt(document.getElementById('limit-' + freeze).value) || 5;
+  const sorted = sortRows(rows, state.col, state.dir).slice(0, limit);
+  document.getElementById('arb-' + freeze + '-head')
+    .querySelectorAll('th').forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (th.dataset.col === state.col)
+        th.classList.add(state.dir === 'desc' ? 'sort-desc' : 'sort-asc');
+    });
+  const tbody = document.getElementById('arb-' + freeze + '-body');
+  if (sorted.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="13" class="empty-cell">\u6682\u65e0\u6570\u636e</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => `
+  tbody.innerHTML = sorted.map(r => `
     <tr>
-      <td>${r.rank}</td>
       <td>${r.item}</td>
       <td>${r.category}</td>
       <td>${r.buy_day}</td>
@@ -427,10 +464,8 @@ function renderFreezeTable(tbodyId, rows) {
 function renderArbitrage() {
   const selDate = document.getElementById('arb-date').value;
   const records = DATA_HISTORY.records.filter(r => r.date === selDate);
-  const f30 = records.filter(r => r.freeze === 30).sort((a, b) => a.rank - b.rank);
-  const f7  = records.filter(r => r.freeze === 7).sort((a, b) => a.rank - b.rank);
-  renderFreezeTable('arb-30-body', f30);
-  renderFreezeTable('arb-7-body',  f7);
+  renderFreezeTable(30, records.filter(r => r.freeze === 30));
+  renderFreezeTable(7,  records.filter(r => r.freeze === 7));
 }
 
 // ── 价格趋势 ──────────────────────────────────────────────────────────────────
@@ -544,6 +579,21 @@ function updateChart() {
   };
   Plotly.newPlot('trend-chart', traces, layout, { responsive: true, displayModeBar: false });
 }
+
+// ── 列头点击排序 ──────────────────────────────────────────────────────────────
+[30, 7].forEach(freeze => {
+  document.getElementById('arb-' + freeze + '-head')
+    .querySelectorAll('th[data-col]').forEach(th => {
+      th.addEventListener('click', () => {
+        const state = sortState[freeze];
+        state.dir = (state.col === th.dataset.col && state.dir === 'desc') ? 'asc' : 'desc';
+        state.col = th.dataset.col;
+        const selDate = document.getElementById('arb-date').value;
+        renderFreezeTable(freeze,
+          DATA_HISTORY.records.filter(r => r.date === selDate && r.freeze === freeze));
+      });
+    });
+});
 
 // ── 初始化 ────────────────────────────────────────────────────────────────────
 (function init() {
