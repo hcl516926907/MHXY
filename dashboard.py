@@ -264,6 +264,18 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
 /* ── 空状态 ── */
 .empty-cell { text-align: center !important; padding: 30px !important;
               color: #8b949e; font-style: italic; }
+
+/* ── 持仓跟踪 ── */
+#inv-add-btn {
+  padding: 5px 16px; border: 1px solid #d0d7de; border-radius: 6px;
+  background: #0969da; color: #fff; cursor: pointer; font-size: 13px; }
+#inv-add-btn:hover { background: #0860ca; }
+.inv-sell { color: #1a7f37; font-weight: 700; }
+.inv-wait { color: #9a6700; font-weight: 600; }
+.inv-hold { color: #8b949e; }
+.inv-del  { background: none; border: none; cursor: pointer;
+            color: #cf222e; font-size: 13px; padding: 2px 6px; }
+.inv-del:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -276,6 +288,7 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
 <nav class="tabs">
   <button class="tab-btn active" data-tab="arb">套利机会总览</button>
   <button class="tab-btn" data-tab="trend">价格趋势</button>
+  <button class="tab-btn" data-tab="inv">持仓跟踪</button>
 </nav>
 
 <!-- ── Tab 1: 套利机会总览 ── -->
@@ -378,6 +391,34 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
   <div id="trend-chart"></div>
 </div>
 
+<!-- ── Tab 3: 持仓跟踪 ── -->
+<div id="tab-inv" class="tab-panel">
+  <div class="controls">
+    <label>商品：</label>
+    <div class="item-autocomplete" id="inv-ac">
+      <input type="text" id="inv-search" placeholder="搜索商品…" autocomplete="off" style="width:200px">
+      <div class="ac-dropdown" id="inv-dropdown"></div>
+    </div>
+    <label>买入价：</label>
+    <input type="number" id="inv-buy-price" placeholder="输入买入价" min="0" style="width:140px">
+    <button id="inv-add-btn" onclick="addInventoryItem()">添加</button>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th style="text-align:left">商品名</th>
+        <th>买入价</th>
+        <th>当前心动最低价</th>
+        <th>税后ROI%</th>
+        <th>未来最高参考价</th>
+        <th>建议</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="inv-body"></tbody>
+    </table>
+  </div>
+</div>
+
 <script>
 // ── 数据 ──────────────────────────────────────────────────────────────────────
 const DATA_PRICE   = __PRICE_DATA__;
@@ -391,6 +432,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'trend') updateChart();
+    if (btn.dataset.tab === 'inv')   renderInventory();
   });
 });
 
@@ -579,6 +621,122 @@ function updateChart() {
   };
   Plotly.newPlot('trend-chart', traces, layout, { responsive: true, displayModeBar: false });
 }
+
+// ── 持仓跟踪 ──────────────────────────────────────────────────────────────────
+const INV_KEY = 'mhxy_inventory';
+
+function loadInventory() {
+  try { return JSON.parse(localStorage.getItem(INV_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveInventory(items) {
+  localStorage.setItem(INV_KEY, JSON.stringify(items));
+}
+
+function computeItemStatus(itemName, buyPrice) {
+  const pts = DATA_PRICE.data[itemName];
+  if (!pts) return { label: '\u5546\u54c1\u65e0\u6570\u636e', cls: 'inv-hold', roi: null, cur: null, future: null };
+
+  const xPts = pts['\u5fc3\u52a8'] || [];
+  if (xPts.length === 0)
+    return { label: '\u65e0\u5fc3\u52a8\u6570\u636e', cls: 'inv-hold', roi: null, cur: null, future: null };
+
+  const maxX   = Math.max(...xPts.map(p => p.x));
+  const latest = xPts.reduce((a, b) => b.x >= a.x ? b : a);
+  const cur    = latest.min;
+  const roi    = (cur * 0.91 - buyPrice) / buyPrice * 100;
+
+  if (roi < 15)
+    return { label: '\u672a\u8fbe\u6807', cls: 'inv-hold', roi, cur, future: null };
+
+  let future = 0;
+  for (const srv of ['\u5927\u5409\u5927\u5229', '\u5929\u547d', '\u98de\u5929']) {
+    for (const p of (pts[srv] || [])) {
+      if (p.x > maxX) future = Math.max(future, p.min);
+    }
+  }
+
+  if (future === 0)
+    return { label: '\u53ef\u51fa\u552e', cls: 'inv-sell', roi, cur, future: null };
+
+  if (cur < future)
+    return { label: '\u518d\u7b49\u7b49', cls: 'inv-wait', roi, cur, future };
+
+  return { label: '\u5c3d\u5feb\u51fa\u552e', cls: 'inv-sell', roi, cur, future };
+}
+
+function renderInventory() {
+  const inv   = loadInventory();
+  const tbody = document.getElementById('inv-body');
+  if (inv.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">\u6682\u65e0\u6301\u4ed3\u8bb0\u5f55</td></tr>';
+    return;
+  }
+  tbody.innerHTML = inv.map((entry, i) => {
+    const { label, cls, roi, cur, future } = computeItemStatus(entry.item, entry.buy_price);
+    return `<tr>
+      <td style="text-align:left">${entry.item}</td>
+      <td>${fmt(entry.buy_price)}</td>
+      <td>${cur != null ? fmt(cur) : '\u2014'}</td>
+      <td>${roi != null ? fmtPct(roi) : '\u2014'}</td>
+      <td>${future != null ? fmt(future) : '\u2014'}</td>
+      <td class="${cls}">${label}</td>
+      <td><button class="inv-del" onclick="removeInventoryItem(${i})">\u5220\u9664</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function addInventoryItem() {
+  const name  = document.getElementById('inv-search').value.trim();
+  const price = parseFloat(document.getElementById('inv-buy-price').value);
+  if (!name || isNaN(price) || price <= 0) return;
+  const inv = loadInventory();
+  inv.push({ item: name, buy_price: price });
+  saveInventory(inv);
+  document.getElementById('inv-search').value    = '';
+  document.getElementById('inv-buy-price').value = '';
+  renderInventory();
+}
+
+function removeInventoryItem(idx) {
+  const inv = loadInventory();
+  inv.splice(idx, 1);
+  saveInventory(inv);
+  renderInventory();
+}
+
+(function setupInvAutocomplete() {
+  const input    = document.getElementById('inv-search');
+  const dropdown = document.getElementById('inv-dropdown');
+
+  function showDrop(items) {
+    if (items.length === 0) { dropdown.style.display = 'none'; return; }
+    dropdown._items = items;
+    dropdown.innerHTML = items.map((it, i) =>
+      `<div class="ac-item" data-idx="${i}">${it}</div>`).join('');
+    dropdown.style.display = 'block';
+  }
+  function hideDrop() { dropdown.style.display = 'none'; }
+
+  input.addEventListener('focus', () => {
+    const q = input.value.trim();
+    showDrop(q ? allItems.filter(it => it.includes(q)) : allItems);
+  });
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    showDrop(q ? allItems.filter(it => it.includes(q)) : allItems);
+  });
+  dropdown.addEventListener('mousedown', e => {
+    const el = e.target.closest('.ac-item');
+    if (!el) return;
+    e.preventDefault();
+    input.value = dropdown._items[parseInt(el.dataset.idx)];
+    hideDrop();
+  });
+  document.addEventListener('click', e => {
+    if (!document.getElementById('inv-ac').contains(e.target)) hideDrop();
+  });
+})();
 
 // ── 列头点击排序 ──────────────────────────────────────────────────────────────
 [30, 7].forEach(freeze => {
