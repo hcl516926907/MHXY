@@ -89,6 +89,34 @@ def main():
     else:
         print("  [警告] 未找到心动服当前开服天数，将枚举所有买入天数。")
 
+    # 修正买入天数快照：用心动服今日实际价格覆盖聚合值
+    # 原因：aggregate_market 按 days_open 聚合所有服务器，若其他服务器也在同一天数
+    # 且价格更低，则 min_price 会被拉低，导致买入价与心动服实际价格不符。
+    if xindong_days is not None:
+        xd_df = df[df["server_name"] == "心动"].copy()
+        xd_df["avg_price"] = pd.to_numeric(xd_df["avg_price"], errors="coerce")
+        xd_df["min_price"] = pd.to_numeric(xd_df["min_price"], errors="coerce")
+        xd_df["days_open"] = pd.to_numeric(xd_df["days_open"], errors="coerce")
+        xd_df["_ts"] = pd.to_datetime(xd_df["timestamp"], errors="coerce", format="mixed")
+        xd_today = xd_df[
+            xd_df["avg_price"].notna() & (xd_df["avg_price"] > 0) &
+            xd_df["min_price"].notna() & (xd_df["min_price"] > 0) &
+            (xd_df["days_open"] == xindong_days) &
+            (xd_df["_ts"].dt.strftime("%Y%m%d") == date_str)
+        ]
+        if not xd_today.empty:
+            xd_latest = (xd_today.sort_values("_ts")
+                                  .drop_duplicates(subset="item_name", keep="last"))
+            patched = 0
+            for _, row in xd_latest.iterrows():
+                mask = ((market["item_name"] == row["item_name"]) &
+                        (market["days_open"] == xindong_days))
+                if mask.any():
+                    market.loc[mask, "min_price"] = int(row["min_price"])
+                    market.loc[mask, "avg_price"] = round(row["avg_price"])
+                    patched += 1
+            print(f"  已用心动服今日实际价格修正 {patched} 件商品的买入价快照。")
+
     print("计算套利分析…")
     result = build_analysis(market, fixed_buy_day=xindong_days)
 

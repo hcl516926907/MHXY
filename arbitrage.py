@@ -11,6 +11,8 @@ import os
 import glob
 
 import pandas as pd
+
+from ocr_corrections import normalize_ocr_text
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -59,8 +61,12 @@ def load_all_source_csvs(up_to_date: str) -> pd.DataFrame:
     if not frames:
         raise ValueError("所有 CSV 文件均读取失败。")
 
+    df = pd.concat(frames, ignore_index=True)
+    # 修正历史 CSV 中可能存在的 OCR 误识别字符（如繁体字形 強→强）
+    if "item_name" in df.columns:
+        df["item_name"] = df["item_name"].astype(str).map(normalize_ocr_text)
     print(f"  已读取 {len(date_dirs)} 个日期目录（{date_dirs[0]} ~ {date_dirs[-1]}）")
-    return pd.concat(frames, ignore_index=True)
+    return df
 
 
 def aggregate_market(df: pd.DataFrame) -> pd.DataFrame:

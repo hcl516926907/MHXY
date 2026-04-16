@@ -20,11 +20,13 @@ import cv2
 from automator import client_to_screen, click, drag, get_game_hwnd
 from capture import capture_window, find_game_window, save_debug_image
 from ocr import recognize_with_positions
+from ocr_corrections import normalize_ocr_text
 from storage import save_na_result
 
 
 def _norm(text: str) -> str:
-    """归一化商品名：去掉中文点（·/・）和空格，用于模糊匹配。"""
+    """归一化商品名：OCR 字符修正 + 去掉中文点（·/・）和空格，用于模糊匹配。"""
+    text = normalize_ocr_text(text)
     return text.replace("·", "").replace("・", "").replace(" ", "").strip()
 
 

@@ -2,6 +2,8 @@ import re
 from collections import Counter
 from typing import List, Optional, Tuple
 
+from ocr_corrections import normalize_ocr_text
+
 # Chinese characters, optionally joined by middle dot "·" (e.g. 神行飞剑·精华)
 _CHINESE_ONLY = re.compile(r"^[\u4e00-\u9fff\u3400-\u4dbf\u00b7·]+$")
 
@@ -29,7 +31,7 @@ def parse_page(
     prices: List[int] = []
 
     for text, _conf in text_results:
-        text = text.strip()
+        text = normalize_ocr_text(text.strip())
         if not text:
             continue
 
