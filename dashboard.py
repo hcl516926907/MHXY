@@ -67,6 +67,8 @@ def _build_price_json(df_raw: pd.DataFrame) -> dict:
                     "min": int(r["min_price"]),
                     "avg": int(r["avg_price"]),
                     "dow": r["dow"],
+                    "raw": [int(p) for p in str(r.get("prices_raw", "")).split("|")
+                            if p.strip().lstrip("-").isdigit() and int(p.strip()) > 0],
                 }
                 for _, r in sdf.iterrows()
             ]
@@ -115,14 +117,10 @@ def _build_history_json() -> dict:
                     "buy_day":    _v(row, "买入天数", int),
                     "sell_day":   _v(row, "卖出天数", int),
                     "diff":       _v(row, "天数差", int),
-                    "buy_min":    _v(row, "买入价(最低)"),
-                    "sell_min":   _v(row, "卖出价(最低)"),
-                    "profit_min": _v(row, "利润_min"),
-                    "roi_min":    _v(row, "收益率%_min"),
-                    "buy_avg":    _v(row, "买入价(均价)"),
-                    "sell_avg":   _v(row, "卖出价(均价)"),
-                    "profit_avg": _v(row, "利润_avg"),
-                    "roi_avg":    _v(row, "收益率%_avg"),
+                    "buy_price":  _v(row, "买入价"),
+                    "sell_price": _v(row, "卖出价"),
+                    "profit":     _v(row, "利润"),
+                    "roi":        _v(row, "收益率%"),
                 })
 
     return {"dates": dates, "records": all_rows}
@@ -313,14 +311,10 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
             <th data-col="buy_day">买入天数</th>
             <th data-col="sell_day">卖出天数</th>
             <th data-col="diff">天数差</th>
-            <th data-col="buy_min">买入价(最低价)</th>
-            <th data-col="sell_min">卖出价(最低价)</th>
-            <th data-col="profit_min">利润(最低价)</th>
-            <th data-col="roi_min">收益率%(最低价)</th>
-            <th data-col="buy_avg">买入价(均价)</th>
-            <th data-col="sell_avg">卖出价(均价)</th>
-            <th data-col="profit_avg">利润(均价)</th>
-            <th data-col="roi_avg">收益率%(均价)</th>
+            <th data-col="buy_price">买入价</th>
+            <th data-col="sell_price">卖出价(t~t+2中位数)</th>
+            <th data-col="profit">税后利润</th>
+            <th data-col="roi">收益率%</th>
           </tr></thead>
           <tbody id="arb-30-body"></tbody>
         </table>
@@ -337,14 +331,10 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
             <th data-col="buy_day">买入天数</th>
             <th data-col="sell_day">卖出天数</th>
             <th data-col="diff">天数差</th>
-            <th data-col="buy_min">买入价(最低价)</th>
-            <th data-col="sell_min">卖出价(最低价)</th>
-            <th data-col="profit_min">利润(最低价)</th>
-            <th data-col="roi_min">收益率%(最低价)</th>
-            <th data-col="buy_avg">买入价(均价)</th>
-            <th data-col="sell_avg">卖出价(均价)</th>
-            <th data-col="profit_avg">利润(均价)</th>
-            <th data-col="roi_avg">收益率%(均价)</th>
+            <th data-col="buy_price">买入价</th>
+            <th data-col="sell_price">卖出价(t~t+2中位数)</th>
+            <th data-col="profit">税后利润</th>
+            <th data-col="roi">收益率%</th>
           </tr></thead>
           <tbody id="arb-7-body"></tbody>
         </table>
@@ -444,16 +434,21 @@ function fmtDate(d) {
   if (!d || d.length !== 8) return d;
   return d.slice(0,4) + '-' + d.slice(4,6) + '-' + d.slice(6,8);
 }
+function median(arr) {
+  if (!arr || arr.length === 0) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 === 0 ? (s[m - 1] + s[m]) / 2 : s[m];
+}
 
 // ── 套利机会总览 ──────────────────────────────────────────────────────────────
 const sortState = {
-  30: { col: 'roi_min', dir: 'desc' },
-  7:  { col: 'roi_min', dir: 'desc' }
+  30: { col: 'roi', dir: 'desc' },
+  7:  { col: 'roi', dir: 'desc' }
 };
 const numericCols = new Set([
   'buy_day','sell_day','diff',
-  'buy_min','sell_min','profit_min','roi_min',
-  'buy_avg','sell_avg','profit_avg','roi_avg'
+  'buy_price','sell_price','profit','roi'
 ]);
 
 function sortRows(rows, col, dir) {
@@ -482,7 +477,7 @@ function renderFreezeTable(freeze, rows) {
     });
   const tbody = document.getElementById('arb-' + freeze + '-body');
   if (sorted.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="13" class="empty-cell">\u6682\u65e0\u6570\u636e</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">\u6682\u65e0\u6570\u636e</td></tr>';
     return;
   }
   tbody.innerHTML = sorted.map(r => `
@@ -492,14 +487,10 @@ function renderFreezeTable(freeze, rows) {
       <td>${r.buy_day}</td>
       <td>${r.sell_day}</td>
       <td>${r.diff}</td>
-      <td>${fmt(r.buy_min)}</td>
-      <td>${fmt(r.sell_min)}</td>
-      <td class="${profitCls(r.profit_min)}">${fmt(r.profit_min)}</td>
-      <td class="${profitCls(r.profit_min)}">${fmtPct(r.roi_min)}</td>
-      <td>${fmt(r.buy_avg)}</td>
-      <td>${fmt(r.sell_avg)}</td>
-      <td class="${profitCls(r.profit_avg)}">${fmt(r.profit_avg)}</td>
-      <td class="${profitCls(r.profit_avg)}">${fmtPct(r.roi_avg)}</td>
+      <td>${fmt(r.buy_price)}</td>
+      <td>${fmt(r.sell_price)}</td>
+      <td class="${profitCls(r.profit)}">${fmt(r.profit)}</td>
+      <td class="${profitCls(r.profit)}">${fmtPct(r.roi)}</td>
     </tr>`).join('');
 }
 
@@ -633,6 +624,8 @@ function saveInventory(items) {
   localStorage.setItem(INV_KEY, JSON.stringify(items));
 }
 
+const SELL_WINDOW = 3;
+
 function computeItemStatus(itemName, buyPrice) {
   const pts = DATA_PRICE.data[itemName];
   if (!pts) return { label: '\u5546\u54c1\u65e0\u6570\u636e', cls: 'inv-hold', roi: null, cur: null, future: null };
@@ -649,14 +642,35 @@ function computeItemStatus(itemName, buyPrice) {
   if (roi < 15)
     return { label: '\u672a\u8fbe\u6807', cls: 'inv-hold', roi, cur, future: null };
 
-  let future = 0;
-  for (const srv of ['\u5927\u5409\u5927\u5229', '\u5929\u547d', '\u98de\u5929']) {
+  // 汇总所有服务器在 days > maxX 的原始价格：{day -> [prices]}
+  const rawByDay = {};
+  for (const srv of Object.keys(pts)) {
     for (const p of (pts[srv] || [])) {
-      if (p.x > maxX) future = Math.max(future, p.min);
+      if (p.x > maxX && p.raw && p.raw.length > 0) {
+        if (!rawByDay[p.x]) rawByDay[p.x] = [];
+        rawByDay[p.x].push(...p.raw);
+      }
     }
   }
 
-  if (future === 0)
+  const freeze = DATA_PRICE.freeze[itemName] || 7;  // 冻结天数：与套利分析保持一致
+
+  // 找所有未来卖出日期中 t~t+SELL_WINDOW-1 中位数的最大值
+  const futureDays = Object.keys(rawByDay).map(Number).sort((a, b) => a - b);
+  const maxFutureDay = futureDays.length > 0 ? futureDays[futureDays.length - 1] : -Infinity;
+  let future = null;
+  for (const t of futureDays) {
+    if (t > maxFutureDay - (SELL_WINDOW - 1)) continue; // 末尾不足窗口的天数跳过
+    if (t - maxX <= freeze) continue;                    // 冻结期内不可出售
+    const combined = [];
+    for (let d = t; d < t + SELL_WINDOW; d++) {
+      if (rawByDay[d]) combined.push(...rawByDay[d]);
+    }
+    const med = median(combined);
+    if (med !== null && (future === null || med > future)) future = med;
+  }
+
+  if (future === null)
     return { label: '\u53ef\u51fa\u552e', cls: 'inv-sell', roi, cur, future: null };
 
   if (cur < future)

@@ -16,8 +16,8 @@
       高级兽诀、高级内丹：30 天
       其余商品：           7 天
   对每对（买入天数，卖出天数），计算：
-    min 场景：以买入天数的 min_price 买入，卖出天数的 min_price 卖出
-    avg 场景：以买入天数的 avg_price 买入，卖出天数的 avg_price 卖出
+    买入价：买入天数的 min_price（心动服当日最低价）
+    卖出价：卖出天数 t、t+1、t+2 内该商品所有服务器 prices_raw 单价的中位数
   卖出收入扣除 9% 交易税。
 
 输出（保存在 analysis/XXXXXX/）：
@@ -118,7 +118,7 @@ def main():
             print(f"  已用心动服今日实际价格修正 {patched} 件商品的买入价快照。")
 
     print("计算套利分析…")
-    result = build_analysis(market, fixed_buy_day=xindong_days)
+    result = build_analysis(market, df_raw=df, fixed_buy_day=xindong_days)
 
     out_dir = os.path.join(ANALYSIS_ROOT, date_str)
     os.makedirs(out_dir, exist_ok=True)
@@ -128,9 +128,9 @@ def main():
     result.to_csv(out_detail, index=False, encoding="utf-8-sig")
     print(f"完整明细已保存：analysis/{date_str}/price_analysis.csv（{len(result)} 行）")
 
-    # 套利机会：每商品保留 min 收益率最高的一条
+    # 套利机会：每商品保留收益率最高的一条
     tradeable = (result
-                 .sort_values("收益率%_min", ascending=False)
+                 .sort_values("收益率%", ascending=False)
                  .drop_duplicates(subset="商品名", keep="first")
                  .reset_index(drop=True))
     out_trade = os.path.join(out_dir, "tradeable_opportunities.csv")
@@ -143,10 +143,9 @@ def main():
 
     # 控制台摘要
     if not tradeable.empty:
-        print("\n── 套利机会（min 收益率前 20）──")
+        print("\n── 套利机会（收益率前 20）──")
         cols = ["商品名", "分类", "买入天数", "卖出天数", "天数差",
-                "买入价(最低)", "卖出价(最低)", "利润_min", "收益率%_min",
-                "买入价(均价)", "卖出价(均价)", "利润_avg", "收益率%_avg"]
+                "买入价", "卖出价", "利润", "收益率%"]
         print(tradeable[cols].head(20).to_string(index=False))
     else:
         print("\n暂无套利机会。")

@@ -9,6 +9,7 @@
 
 import os
 import glob
+import statistics
 
 import pandas as pd
 
@@ -21,6 +22,10 @@ from paths import DATA_ROOT, ANALYSIS_ROOT
 
 # ── 套利规则常量 ───────────────────────────────────────────────────────────────
 TAX_RATE = 0.09
+
+# 卖出价计算窗口：取卖出天数 t, t+1, ..., t+SELL_WINDOW-1 的所有原始价格中位数
+# 因此 days_list 末尾 SELL_WINDOW-1 个天数不作为卖出候选（数据不足）
+SELL_WINDOW = 3
 
 # 冻结天数（按商品分类）；不在表中的默认 7 天
 FREEZE_DAYS_BY_CATEGORY: dict[str, int] = {
@@ -104,27 +109,62 @@ def aggregate_market(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_analysis(market: pd.DataFrame,
+                   df_raw: pd.DataFrame | None = None,
                    fixed_buy_day: int | None = None) -> pd.DataFrame:
     """
     核心计算：对聚合市场快照中每件商品的 (买入天数, 卖出天数) 组合，
-    计算 min/avg 两个场景的利润与收益率。
+    计算利润与收益率。
 
     fixed_buy_day：若指定，则只以该天数作为买入天数（通常为心动服当前开服天数）；
                    若为 None，则枚举所有可能的买入天数。
     条件：卖出天数 - 买入天数 > 冻结天数
-    min 场景：买入天数的 min_price 买入，卖出天数的 min_price 卖出
-    avg 场景：买入天数的 avg_price 买入，卖出天数的 avg_price 卖出
+    买入价：买入天数的 min_price（心动服当日最低价）
+    卖出价：卖出天数 t、t+1、t+2 内，该商品所有服务器 prices_raw 单价的中位数；
+           若 df_raw 未提供或三天内无原始数据，则跳过该组合。
+    卖出收入扣除 9% 交易税后计算利润与收益率。
     """
+    # 预处理：按商品建立原始价格索引 {item -> {days_open -> [所有单价, ...]}}
+    # prices_raw 列为 "|" 分隔的单价字符串，解析后汇总所有服务器在该天的全部报价
+    raw_by_item: dict[str, dict[int, list[float]]] = {}
+    if df_raw is not None:
+        _raw = df_raw.copy()
+        _raw["days_open"] = pd.to_numeric(_raw["days_open"], errors="coerce")
+        _raw = _raw[_raw["days_open"].notna() & _raw["prices_raw"].notna()]
+        for _, row in _raw.iterrows():
+            raw_str = str(row["prices_raw"]).strip()
+            if not raw_str or raw_str.upper() == "NA":
+                continue
+            prices = []
+            for token in raw_str.split("|"):
+                try:
+                    v = float(token.strip())
+                    if v > 0:
+                        prices.append(v)
+                except ValueError:
+                    pass
+            if not prices:
+                continue
+            item_key = str(row["item_name"])
+            day_key  = int(row["days_open"])
+            raw_by_item.setdefault(item_key, {}).setdefault(day_key, []).extend(prices)
+
     records = []
 
     for item, grp in market.groupby("item_name"):
         category    = grp["category"].iloc[0]
         freeze_days = FREEZE_DAYS_BY_CATEGORY.get(category, DEFAULT_FREEZE_DAYS)
 
-        # 按天数排序，建立 {days_open: row} 映射
+        # 按天数排序，建立 {days_open: row} 映射（用于买入价和 days_list）
         grp_sorted = grp.sort_values("days_open")
         day_rows   = {int(r["days_open"]): r for _, r in grp_sorted.iterrows()}
         days_list  = sorted(day_rows.keys())
+
+        # 该商品的原始价格索引（无则空字典）
+        item_raw = raw_by_item.get(item, {})
+
+        # 末尾 SELL_WINDOW-1 个天数无足够后续数据，不作为卖出候选
+        max_sell_day = max(days_list) - (SELL_WINDOW - 1)
+        valid_sell_days = [d for d in days_list if d <= max_sell_day]
 
         # 确定买入天数候选
         if fixed_buy_day is not None:
@@ -135,45 +175,37 @@ def build_analysis(market: pd.DataFrame,
         for buy_day in buy_days_candidates:
             buy_row = day_rows[buy_day]
             buy_min = buy_row["min_price"]
-            buy_avg = buy_row["avg_price"]
 
-            for sell_day in days_list:
+            for sell_day in valid_sell_days:
                 if sell_day - buy_day <= freeze_days:
                     continue
 
-                sell_row = day_rows[sell_day]
-                sell_min = sell_row["min_price"]
-                sell_avg = sell_row["avg_price"]
+                # 卖出价：sell_day, sell_day+1, ..., sell_day+SELL_WINDOW-1 所有服务器
+                # prices_raw 单价的中位数；若无原始数据则跳过该组合
+                sell_prices = []
+                for d in range(sell_day, sell_day + SELL_WINDOW):
+                    sell_prices.extend(item_raw.get(d, []))
+                if not sell_prices:
+                    continue
+                sell_median = statistics.median(sell_prices)
 
                 days_diff = sell_day - buy_day
 
-                # min 场景
-                sell_net_min = sell_min * (1 - TAX_RATE)
-                profit_min   = sell_net_min - buy_min
-                roi_min      = profit_min / buy_min * 100
-
-                # avg 场景
-                sell_net_avg = sell_avg * (1 - TAX_RATE)
-                profit_avg   = sell_net_avg - buy_avg
-                roi_avg      = profit_avg / buy_avg * 100
+                sell_net = sell_median * (1 - TAX_RATE)
+                profit   = sell_net - buy_min
+                roi      = profit / buy_min * 100
 
                 records.append({
-                    "商品名":       item,
-                    "分类":         category,
-                    "冻结天数":     freeze_days,
-                    "买入天数":     buy_day,
-                    "卖出天数":     sell_day,
-                    "天数差":       days_diff,
-                    "买入价(最低)": int(buy_min),
-                    "买入价(均价)": int(buy_avg),
-                    "卖出价(最低)": int(sell_min),
-                    "卖出价(均价)": int(sell_avg),
-                    "税后收入_min": round(sell_net_min),
-                    "税后收入_avg": round(sell_net_avg),
-                    "利润_min":     round(profit_min),
-                    "利润_avg":     round(profit_avg),
-                    "收益率%_min":  round(roi_min, 1),
-                    "收益率%_avg":  round(roi_avg, 1),
+                    "商品名":  item,
+                    "分类":    category,
+                    "冻结天数": freeze_days,
+                    "买入天数": buy_day,
+                    "卖出天数": sell_day,
+                    "天数差":  days_diff,
+                    "买入价":  int(buy_min),
+                    "卖出价":  round(sell_median),
+                    "利润":    round(profit),
+                    "收益率%": round(roi, 1),
                 })
 
     result = pd.DataFrame(records)
@@ -185,33 +217,29 @@ def build_analysis(market: pd.DataFrame,
 
 def export_xlsx(tradeable: pd.DataFrame, out_dir: str, date_str: str) -> str:
     """
-    从 tradeable_opportunities 中取收益率%_min 最高的：
+    从 tradeable_opportunities 中取收益率% 最高的：
       - 5 条冻结 30 天的商品（高级兽诀 / 高级内丹）
       - 5 条冻结  7 天的商品（其余）
     生成美化后的 xlsx 报表。
     """
     top30 = (tradeable[tradeable["冻结天数"] == 30]
-             .sort_values("收益率%_min", ascending=False)
+             .sort_values("收益率%", ascending=False)
              .head(5))
     top7  = (tradeable[tradeable["冻结天数"] == 7]
-             .sort_values("收益率%_min", ascending=False)
+             .sort_values("收益率%", ascending=False)
              .head(5))
 
     # 展示列（中文标题）及其对应的 DataFrame 列名
     DISPLAY = [
-        ("商品名",       "商品名"),
-        ("分类",         "分类"),
-        ("买入天数",     "买入天数"),
-        ("卖出天数",     "卖出天数"),
-        ("天数差",       "天数差"),
-        ("买入价(最低)", "买入价(最低)"),
-        ("卖出价(最低)", "卖出价(最低)"),
-        ("税后利润",     "利润_min"),
-        ("收益率%",      "收益率%_min"),
-        ("买入价(均价)", "买入价(均价)"),
-        ("卖出价(均价)", "卖出价(均价)"),
-        ("税后利润(均)", "利润_avg"),
-        ("收益率%(均)",  "收益率%_avg"),
+        ("商品名",  "商品名"),
+        ("分类",    "分类"),
+        ("买入天数", "买入天数"),
+        ("卖出天数", "卖出天数"),
+        ("天数差",  "天数差"),
+        ("买入价",  "买入价"),
+        ("卖出价(t~t+2中位数)", "卖出价"),
+        ("税后利润", "利润"),
+        ("收益率%", "收益率%"),
     ]
     headers   = [d[0] for d in DISPLAY]
     src_cols  = [d[1] for d in DISPLAY]
@@ -252,8 +280,8 @@ def export_xlsx(tradeable: pd.DataFrame, out_dir: str, date_str: str) -> str:
     ws = wb.active
     ws.title = f"套利速览 {date_str}"
 
-    # 固定列宽（13 列：商品名/分类/买入天数/卖出天数/天数差/买入min/卖出min/利润/ROI/买入avg/卖出avg/利润均/ROI均）
-    COL_WIDTHS = [12, 10, 8, 8, 7, 13, 13, 11, 9, 13, 13, 11, 9]
+    # 固定列宽（9 列：商品名/分类/买入天数/卖出天数/天数差/买入价/卖出价/利润/收益率%）
+    COL_WIDTHS = [12, 10, 8, 8, 7, 13, 20, 11, 9]
     for i, w in enumerate(COL_WIDTHS, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -290,18 +318,6 @@ def export_xlsx(tradeable: pd.DataFrame, out_dir: str, date_str: str) -> str:
             c.border    = border
         ws.row_dimensions[hdr_row].height = 18
 
-        # 分隔线：最低价区 / 均价区
-        # 列 1-9 = 最低价组，10-13 = 均价组
-        # 在表头加视觉分隔（左边框加粗）
-        sep_col = 10  # 均价区起始列
-        thick = Side(style="medium", color="888888")
-        for r in range(start_row, start_row + 2 + len(df_section)):
-            cell = ws.cell(row=r, column=sep_col)
-            cell.border = Border(
-                left=thick,
-                right=thin, top=thin, bottom=thin
-            )
-
         # ── 数据行 ────────────────────────────────────────────────────────────
         for rank, (_, row) in enumerate(df_section.iterrows(), start=1):
             data_row = hdr_row + rank
@@ -316,14 +332,14 @@ def export_xlsx(tradeable: pd.DataFrame, out_dir: str, date_str: str) -> str:
                 c.alignment = left if col_i <= 2 else center
 
                 # 利润列染色
-                if src in ("利润_min", "利润_avg"):
+                if src == "利润":
                     if isinstance(val, (int, float)):
                         profit_color = CLR_PROFIT_POS if val >= 0 else CLR_PROFIT_NEG
                         c.font = cell_font(bold=True, color=profit_color)
                     else:
                         c.font = cell_font()
                 # 收益率列染色 + 百分号格式
-                elif src in ("收益率%_min", "收益率%_avg"):
+                elif src == "收益率%":
                     if isinstance(val, (int, float)):
                         profit_color = CLR_PROFIT_POS if val >= 0 else CLR_PROFIT_NEG
                         c.font       = cell_font(bold=True, color=profit_color)
@@ -331,17 +347,11 @@ def export_xlsx(tradeable: pd.DataFrame, out_dir: str, date_str: str) -> str:
                     else:
                         c.font = cell_font()
                 # 价格列加千位分隔
-                elif src in ("买入价(最低)", "卖出价(最低)", "税后收入_min",
-                             "买入价(均价)", "卖出价(均价)", "税后收入_avg"):
+                elif src in ("买入价", "卖出价"):
                     c.number_format = '#,##0'
                     c.font = cell_font()
                 else:
                     c.font = cell_font()
-
-            # 分隔线延伸到数据行
-            ws.cell(row=data_row, column=sep_col).border = Border(
-                left=thick, right=thin, top=thin, bottom=thin
-            )
 
         next_row = hdr_row + len(df_section) + 1
         return next_row
