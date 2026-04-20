@@ -20,7 +20,9 @@
       "Bash(python3 -c ':*)",
       "Bash(py -c ':*)",
       "Bash(python -c \"import ast; ast.parse\\(open\\('daily_analysis.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
-      "Bash(python -c \"from openpyxl.chart.data_source import NumDataSource; from openpyxl.chart.marker import Marker; m = Marker\\(\\); print\\(type\\(m\\).__mro__\\); import inspect; print\\(inspect.getsource\\(Marker\\)\\)\")"
+      "Bash(python -c \"from openpyxl.chart.data_source import NumDataSource; from openpyxl.chart.marker import Marker; m = Marker\\(\\); print\\(type\\(m\\).__mro__\\); import inspect; print\\(inspect.getsource\\(Marker\\)\\)\")",
+      "Read(//usr/**)",
+      "Read(//usr/local/**)"
     ]
   }
 }

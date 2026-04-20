@@ -73,7 +73,14 @@ def _build_price_json(df_raw: pd.DataFrame) -> dict:
                 for _, r in sdf.iterrows()
             ]
 
-    return {"items": items, "servers": _SERVERS, "colors": _SERVER_COLORS, "data": data, "freeze": freeze}
+    # 收集各服开服日期（用于前端冻结期计算）
+    open_dates = {}
+    for srv in _SERVERS:
+        sdf = df[df["server_name"] == srv]
+        if not sdf.empty and "open_date" in sdf.columns:
+            open_dates[srv] = str(sdf["open_date"].iloc[0])
+
+    return {"items": items, "servers": _SERVERS, "colors": _SERVER_COLORS, "data": data, "freeze": freeze, "open_dates": open_dates}
 
 
 def _v(row, col, cast=float):
@@ -268,9 +275,10 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
   padding: 5px 16px; border: 1px solid #d0d7de; border-radius: 6px;
   background: #0969da; color: #fff; cursor: pointer; font-size: 13px; }
 #inv-add-btn:hover { background: #0860ca; }
-.inv-sell { color: #1a7f37; font-weight: 700; }
-.inv-wait { color: #9a6700; font-weight: 600; }
-.inv-hold { color: #8b949e; }
+.inv-sell   { color: #1a7f37; font-weight: 700; }
+.inv-wait   { color: #9a6700; font-weight: 600; }
+.inv-hold   { color: #8b949e; }
+.inv-frozen { color: #7c6af5; font-weight: 600; }
 .inv-del  { background: none; border: none; cursor: pointer;
             color: #cf222e; font-size: 13px; padding: 2px 6px; }
 .inv-del:hover { text-decoration: underline; }
@@ -389,19 +397,26 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
       <input type="text" id="inv-search" placeholder="搜索商品…" autocomplete="off" style="width:200px">
       <div class="ac-dropdown" id="inv-dropdown"></div>
     </div>
+    <label>购买日期：</label>
+    <input type="date" id="inv-date" style="width:130px">
+    <label>数量：</label>
+    <input type="number" id="inv-qty" placeholder="数量" min="1" value="1" style="width:70px">
     <label>买入价：</label>
     <input type="number" id="inv-buy-price" placeholder="输入买入价" min="0" style="width:140px">
     <button id="inv-add-btn" onclick="addInventoryItem()">添加</button>
   </div>
   <div class="tbl-wrap">
-    <table>
-      <thead><tr>
-        <th style="text-align:left">商品名</th>
-        <th>买入价</th>
-        <th>当前心动最低价</th>
-        <th>税后ROI%</th>
-        <th>未来最高参考价</th>
-        <th>建议</th>
+    <table id="inv-table">
+      <thead><tr id="inv-head">
+        <th data-col="item" style="text-align:left;cursor:pointer">商品名 ↕</th>
+        <th data-col="purchase_date" style="cursor:pointer">购买日期 ↕</th>
+        <th data-col="quantity" style="cursor:pointer">数量 ↕</th>
+        <th data-col="buy_price" style="cursor:pointer">买入价 ↕</th>
+        <th data-col="cur" style="cursor:pointer">当前心动最低价 ↕</th>
+        <th data-col="roi" style="cursor:pointer">收益率 ↕</th>
+        <th data-col="profit" style="cursor:pointer">税后利润 ↕</th>
+        <th data-col="future" style="cursor:pointer">未来最高参考价 ↕</th>
+        <th data-col="label" style="cursor:pointer">建议 ↕</th>
         <th></th>
       </tr></thead>
       <tbody id="inv-body"></tbody>
@@ -617,8 +632,17 @@ function updateChart() {
 const INV_KEY = 'mhxy_inventory';
 
 function loadInventory() {
-  try { return JSON.parse(localStorage.getItem(INV_KEY) || '[]'); }
-  catch { return []; }
+  let items;
+  try { items = JSON.parse(localStorage.getItem(INV_KEY) || '[]'); }
+  catch { items = []; }
+  // 迁移旧数据：补充 purchase_date 和 quantity 默认值
+  let changed = false;
+  items.forEach(entry => {
+    if (!entry.purchase_date) { entry.purchase_date = '2026-04-02'; changed = true; }
+    if (entry.quantity == null) { entry.quantity = 1; changed = true; }
+  });
+  if (changed) localStorage.setItem(INV_KEY, JSON.stringify(items));
+  return items;
 }
 function saveInventory(items) {
   localStorage.setItem(INV_KEY, JSON.stringify(items));
@@ -626,7 +650,16 @@ function saveInventory(items) {
 
 const SELL_WINDOW = 3;
 
-function computeItemStatus(itemName, buyPrice) {
+// 根据开服日期字符串和购买日期字符串，计算购买当天该服的 days_open
+function _purchaseDayOnServer(openDateStr, purchaseDateStr) {
+  if (!openDateStr || !purchaseDateStr) return null;
+  const od = new Date(openDateStr);
+  const pd = new Date(purchaseDateStr);
+  if (isNaN(od) || isNaN(pd)) return null;
+  return Math.round((pd - od) / (1000 * 60 * 60 * 24));
+}
+
+function computeItemStatus(itemName, buyPrice, purchaseDate) {
   const pts = DATA_PRICE.data[itemName];
   if (!pts) return { label: '\u5546\u54c1\u65e0\u6570\u636e', cls: 'inv-hold', roi: null, cur: null, future: null };
 
@@ -638,6 +671,17 @@ function computeItemStatus(itemName, buyPrice) {
   const latest = xPts.reduce((a, b) => b.x >= a.x ? b : a);
   const cur    = latest.min;
   const roi    = (cur * 0.91 - buyPrice) / buyPrice * 100;
+
+  const freeze = DATA_PRICE.freeze[itemName] || 7;
+
+  // 以购买日期为基点计算冻结期：purchaseDay + freeze 才可出售
+  const xindongOpenDate = DATA_PRICE.open_dates && DATA_PRICE.open_dates['\u5fc3\u52a8'];
+  const purchaseDay = _purchaseDayOnServer(xindongOpenDate, purchaseDate);
+  const freezeBase  = (purchaseDay !== null) ? purchaseDay : maxX;
+
+  // 冻结期优先判断，不受 ROI 影响
+  if (maxX - freezeBase <= freeze)
+    return { label: '\u51bb\u7ed3\u671f\u5185\u4e0d\u53ef\u4ea4\u6613', cls: 'inv-frozen', roi, cur, future: null };
 
   if (roi < 15)
     return { label: '\u672a\u8fbe\u6807', cls: 'inv-hold', roi, cur, future: null };
@@ -653,15 +697,13 @@ function computeItemStatus(itemName, buyPrice) {
     }
   }
 
-  const freeze = DATA_PRICE.freeze[itemName] || 7;  // 冻结天数：与套利分析保持一致
-
   // 找所有未来卖出日期中 t~t+SELL_WINDOW-1 中位数的最大值
   const futureDays = Object.keys(rawByDay).map(Number).sort((a, b) => a - b);
   const maxFutureDay = futureDays.length > 0 ? futureDays[futureDays.length - 1] : -Infinity;
   let future = null;
   for (const t of futureDays) {
     if (t > maxFutureDay - (SELL_WINDOW - 1)) continue; // 末尾不足窗口的天数跳过
-    if (t - maxX <= freeze) continue;                    // 冻结期内不可出售
+    if (t - freezeBase <= freeze) continue;              // 冻结期内不可出售
     const combined = [];
     for (let d = t; d < t + SELL_WINDOW; d++) {
       if (rawByDay[d]) combined.push(...rawByDay[d]);
@@ -679,33 +721,82 @@ function computeItemStatus(itemName, buyPrice) {
   return { label: '\u5c3d\u5feb\u51fa\u552e', cls: 'inv-sell', roi, cur, future };
 }
 
+// 持仓表格排序状态
+const invSortState = { col: null, dir: 'asc' };
+const invNumericCols = new Set(['quantity', 'buy_price', 'cur', 'roi', 'profit', 'future']);
+
 function renderInventory() {
   const inv   = loadInventory();
   const tbody = document.getElementById('inv-body');
   if (inv.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">\u6682\u65e0\u6301\u4ed3\u8bb0\u5f55</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="empty-cell">\u6682\u65e0\u6301\u4ed3\u8bb0\u5f55</td></tr>';
     return;
   }
-  tbody.innerHTML = inv.map((entry, i) => {
-    const { label, cls, roi, cur, future } = computeItemStatus(entry.item, entry.buy_price);
-    return `<tr>
+
+  // 计算每行展示数据，保留原始索引
+  const rows = inv.map((entry, origIdx) => {
+    const { label, cls, roi, cur, future } = computeItemStatus(entry.item, entry.buy_price, entry.purchase_date);
+    const profit = (roi != null) ? entry.buy_price * roi / 100 : null;
+    return { origIdx, entry, label, cls, roi, profit, cur, future };
+  });
+
+  // 按当前排序列排序
+  if (invSortState.col) {
+    rows.sort((a, b) => {
+      let va, vb;
+      const col = invSortState.col;
+      if (col === 'item')          { va = a.entry.item;          vb = b.entry.item; }
+      else if (col === 'purchase_date') { va = a.entry.purchase_date; vb = b.entry.purchase_date; }
+      else if (col === 'quantity') { va = a.entry.quantity;      vb = b.entry.quantity; }
+      else if (col === 'buy_price'){ va = a.entry.buy_price;     vb = b.entry.buy_price; }
+      else if (col === 'cur')      { va = a.cur;                 vb = b.cur; }
+      else if (col === 'roi')      { va = a.roi;                 vb = b.roi; }
+      else if (col === 'profit')   { va = a.profit;              vb = b.profit; }
+      else if (col === 'future')   { va = a.future;              vb = b.future; }
+      else if (col === 'label')    { va = a.label;               vb = b.label; }
+      if (invNumericCols.has(col)) {
+        const na = (va == null || isNaN(va)) ? -Infinity : +va;
+        const nb = (vb == null || isNaN(vb)) ? -Infinity : +vb;
+        return invSortState.dir === 'asc' ? na - nb : nb - na;
+      }
+      va = (va || ''); vb = (vb || '');
+      return invSortState.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+  }
+
+  // 更新列头排序指示符
+  document.querySelectorAll('#inv-head th[data-col]').forEach(th => {
+    const col = th.dataset.col;
+    const base = th.textContent.replace(/[ ↑↓↕]/g, '').trim();
+    if (col === invSortState.col) {
+      th.textContent = base + ' ' + (invSortState.dir === 'asc' ? '\u2191' : '\u2193');
+    } else {
+      th.textContent = base + ' \u2195';
+    }
+  });
+
+  tbody.innerHTML = rows.map(({ origIdx, entry, label, cls, roi, profit, cur, future }) => `<tr>
       <td style="text-align:left">${entry.item}</td>
+      <td>${entry.purchase_date || '\u2014'}</td>
+      <td>${entry.quantity != null ? entry.quantity : 1}</td>
       <td>${fmt(entry.buy_price)}</td>
       <td>${cur != null ? fmt(cur) : '\u2014'}</td>
       <td>${roi != null ? fmtPct(roi) : '\u2014'}</td>
+      <td>${profit != null ? fmt(profit) : '\u2014'}</td>
       <td>${future != null ? fmt(future) : '\u2014'}</td>
       <td class="${cls}">${label}</td>
-      <td><button class="inv-del" onclick="removeInventoryItem(${i})">\u5220\u9664</button></td>
-    </tr>`;
-  }).join('');
+      <td><button class="inv-del" onclick="removeInventoryItem(${origIdx})">\u5220\u9664</button></td>
+    </tr>`).join('');
 }
 
 function addInventoryItem() {
   const name  = document.getElementById('inv-search').value.trim();
   const price = parseFloat(document.getElementById('inv-buy-price').value);
+  const date  = document.getElementById('inv-date').value || new Date().toLocaleDateString('en-CA');
+  const qty   = parseInt(document.getElementById('inv-qty').value) || 1;
   if (!name || isNaN(price) || price <= 0) return;
   const inv = loadInventory();
-  inv.push({ item: name, buy_price: price });
+  inv.push({ item: name, buy_price: price, purchase_date: date, quantity: qty });
   saveInventory(inv);
   document.getElementById('inv-search').value    = '';
   document.getElementById('inv-buy-price').value = '';
@@ -752,7 +843,19 @@ function removeInventoryItem(idx) {
   });
 })();
 
-// ── 列头点击排序 ──────────────────────────────────────────────────────────────
+// 初始化购买日期为今日
+document.getElementById('inv-date').value = new Date().toLocaleDateString('en-CA');
+
+// ── 持仓表格列头排序 ──────────────────────────────────────────────────────────
+document.getElementById('inv-head').querySelectorAll('th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    invSortState.dir = (invSortState.col === th.dataset.col && invSortState.dir === 'asc') ? 'desc' : 'asc';
+    invSortState.col = th.dataset.col;
+    renderInventory();
+  });
+});
+
+// ── 套利机会列头点击排序 ───────────────────────────────────────────────────────
 [30, 7].forEach(freeze => {
   document.getElementById('arb-' + freeze + '-head')
     .querySelectorAll('th[data-col]').forEach(th => {
