@@ -9,7 +9,6 @@
 
 import os
 import glob
-import statistics
 
 import pandas as pd
 
@@ -22,10 +21,6 @@ from paths import DATA_ROOT, ANALYSIS_ROOT
 
 # ── 套利规则常量 ───────────────────────────────────────────────────────────────
 TAX_RATE = 0.09
-
-# 卖出价计算窗口：取卖出天数 t, t+1, ..., t+SELL_WINDOW-1 的所有原始价格中位数
-# 因此 days_list 末尾 SELL_WINDOW-1 个天数不作为卖出候选（数据不足）
-SELL_WINDOW = 3
 
 # 冻结天数（按商品分类）；不在表中的默认 7 天
 FREEZE_DAYS_BY_CATEGORY: dict[str, int] = {
@@ -119,35 +114,9 @@ def build_analysis(market: pd.DataFrame,
                    若为 None，则枚举所有可能的买入天数。
     条件：卖出天数 - 买入天数 > 冻结天数
     买入价：买入天数的 min_price（心动服当日最低价）
-    卖出价：卖出天数 t、t+1、t+2 内，该商品所有服务器 prices_raw 单价的中位数；
-           若 df_raw 未提供或三天内无原始数据，则跳过该组合。
+    卖出价：卖出天数对应的跨服聚合最低价（所有服务器该开服天数最低价的最小值）。
     卖出收入扣除 9% 交易税后计算利润与收益率。
     """
-    # 预处理：按商品建立原始价格索引 {item -> {days_open -> [所有单价, ...]}}
-    # prices_raw 列为 "|" 分隔的单价字符串，解析后汇总所有服务器在该天的全部报价
-    raw_by_item: dict[str, dict[int, list[float]]] = {}
-    if df_raw is not None:
-        _raw = df_raw.copy()
-        _raw["days_open"] = pd.to_numeric(_raw["days_open"], errors="coerce")
-        _raw = _raw[_raw["days_open"].notna() & _raw["prices_raw"].notna()]
-        for _, row in _raw.iterrows():
-            raw_str = str(row["prices_raw"]).strip()
-            if not raw_str or raw_str.upper() == "NA":
-                continue
-            prices = []
-            for token in raw_str.split("|"):
-                try:
-                    v = float(token.strip())
-                    if v > 0:
-                        prices.append(v)
-                except ValueError:
-                    pass
-            if not prices:
-                continue
-            item_key = str(row["item_name"])
-            day_key  = int(row["days_open"])
-            raw_by_item.setdefault(item_key, {}).setdefault(day_key, []).extend(prices)
-
     records = []
 
     for item, grp in market.groupby("item_name"):
@@ -159,13 +128,6 @@ def build_analysis(market: pd.DataFrame,
         day_rows   = {int(r["days_open"]): r for _, r in grp_sorted.iterrows()}
         days_list  = sorted(day_rows.keys())
 
-        # 该商品的原始价格索引（无则空字典）
-        item_raw = raw_by_item.get(item, {})
-
-        # 末尾 SELL_WINDOW-1 个天数无足够后续数据，不作为卖出候选
-        max_sell_day = max(days_list) - (SELL_WINDOW - 1)
-        valid_sell_days = [d for d in days_list if d <= max_sell_day]
-
         # 确定买入天数候选
         if fixed_buy_day is not None:
             buy_days_candidates = [fixed_buy_day] if fixed_buy_day in day_rows else []
@@ -176,22 +138,15 @@ def build_analysis(market: pd.DataFrame,
             buy_row = day_rows[buy_day]
             buy_min = buy_row["min_price"]
 
-            for sell_day in valid_sell_days:
+            for sell_day in days_list:
                 if sell_day - buy_day <= freeze_days:
                     continue
 
-                # 卖出价：sell_day, sell_day+1, ..., sell_day+SELL_WINDOW-1 所有服务器
-                # prices_raw 单价的中位数；若无原始数据则跳过该组合
-                sell_prices = []
-                for d in range(sell_day, sell_day + SELL_WINDOW):
-                    sell_prices.extend(item_raw.get(d, []))
-                if not sell_prices:
-                    continue
-                sell_median = statistics.median(sell_prices)
+                # 卖出价：该卖出天数的跨服聚合最低价（aggregate_market 已计算）
+                sell_price = day_rows[sell_day]["min_price"]
+                days_diff  = sell_day - buy_day
 
-                days_diff = sell_day - buy_day
-
-                sell_net = sell_median * (1 - TAX_RATE)
+                sell_net = sell_price * (1 - TAX_RATE)
                 profit   = sell_net - buy_min
                 roi      = profit / buy_min * 100
 
@@ -203,7 +158,7 @@ def build_analysis(market: pd.DataFrame,
                     "卖出天数": sell_day,
                     "天数差":  days_diff,
                     "买入价":  int(buy_min),
-                    "卖出价":  round(sell_median),
+                    "卖出价":  int(sell_price),
                     "利润":    round(profit),
                     "收益率%": round(roi, 1),
                 })
@@ -237,7 +192,7 @@ def export_xlsx(tradeable: pd.DataFrame, out_dir: str, date_str: str) -> str:
         ("卖出天数", "卖出天数"),
         ("天数差",  "天数差"),
         ("买入价",  "买入价"),
-        ("卖出价(t~t+2中位数)", "卖出价"),
+        ("卖出价(跨服最低价)", "卖出价"),
         ("税后利润", "利润"),
         ("收益率%", "收益率%"),
     ]

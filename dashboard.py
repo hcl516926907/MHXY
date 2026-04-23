@@ -78,7 +78,7 @@ def _build_price_json(df_raw: pd.DataFrame) -> dict:
     for srv in _SERVERS:
         sdf = df[df["server_name"] == srv]
         if not sdf.empty and "open_date" in sdf.columns:
-            open_dates[srv] = str(sdf["open_date"].iloc[0])
+            open_dates[srv] = str(sdf["open_date"].iloc[0]).replace("/", "-")
 
     return {"items": items, "servers": _SERVERS, "colors": _SERVER_COLORS, "data": data, "freeze": freeze, "open_dates": open_dates}
 
@@ -224,14 +224,12 @@ select:focus, input[type=text]:focus { outline: 2px solid #0969da; outline-offse
 table { width: 100%; border-collapse: collapse; background: #fff; }
 thead th {
   background: #f6f8fa; font-weight: 600; padding: 8px 12px;
-  text-align: right; white-space: nowrap;
+  text-align: center; white-space: nowrap;
   border-bottom: 1px solid #d0d7de; }
-thead th:first-child, thead th:nth-child(2) { text-align: left; }
 tbody tr:nth-child(even) { background: #f6f8fa; }
 tbody tr:hover { background: #ddf4ff; }
-td { padding: 7px 12px; text-align: right; white-space: nowrap;
+td { padding: 7px 12px; text-align: center; white-space: nowrap;
      border-bottom: 1px solid #eaeef2; }
-td:first-child, td:nth-child(2) { text-align: left; }
 .profit-pos { color: #1a7f37; font-weight: 600; }
 .profit-neg { color: #cf222e; }
 
@@ -320,9 +318,11 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
             <th data-col="sell_day">卖出天数</th>
             <th data-col="diff">天数差</th>
             <th data-col="buy_price">买入价</th>
-            <th data-col="sell_price">卖出价(t~t+2中位数)</th>
+            <th data-col="sell_price">卖出价(跨服最低价)</th>
+            <th>最低价服务器</th>
             <th data-col="profit">税后利润</th>
             <th data-col="roi">收益率%</th>
+            <th>各服增长率</th>
           </tr></thead>
           <tbody id="arb-30-body"></tbody>
         </table>
@@ -340,9 +340,11 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
             <th data-col="sell_day">卖出天数</th>
             <th data-col="diff">天数差</th>
             <th data-col="buy_price">买入价</th>
-            <th data-col="sell_price">卖出价(t~t+2中位数)</th>
+            <th data-col="sell_price">卖出价(跨服最低价)</th>
+            <th>最低价服务器</th>
             <th data-col="profit">税后利润</th>
             <th data-col="roi">收益率%</th>
+            <th>各服增长率</th>
           </tr></thead>
           <tbody id="arb-7-body"></tbody>
         </table>
@@ -449,11 +451,123 @@ function fmtDate(d) {
   if (!d || d.length !== 8) return d;
   return d.slice(0,4) + '-' + d.slice(4,6) + '-' + d.slice(6,8);
 }
-function median(arr) {
-  if (!arr || arr.length === 0) return null;
-  const s = [...arr].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 === 0 ? (s[m - 1] + s[m]) / 2 : s[m];
+
+// ── 价格增长率辅助函数 ────────────────────────────────────────────────────────
+
+// 找在 sell_day 有精确数据的服务器，优先选最新开服的（其第 t 天日历最晚）
+// 备选：若无精确匹配，取最近 ≤ sell_day 有数据的最新开服服务器
+function findReferenceServer(item, sell_day) {
+  const openDates = DATA_PRICE.open_dates || {};
+  // 按开服日期从新到旧排序
+  const servers = (DATA_PRICE.servers || []).slice().sort((a, b) =>
+    new Date(openDates[b] || '1900-01-01') - new Date(openDates[a] || '1900-01-01')
+  );
+  // 找 sell_day 上最低价的服务器；同价时取最新开服的（servers 已按新→旧排序）
+  let minPrice = null;
+  let refServer = null;
+  for (const server of servers) {
+    const pts = ((DATA_PRICE.data || {})[item] || {})[server] || [];
+    const pt = pts.find(p => p.x === sell_day);
+    if (!pt) continue;
+    if (minPrice === null || pt.min < minPrice) { minPrice = pt.min; refServer = server; }
+  }
+  if (refServer) return refServer;
+  // 备选：有最近 ≤ sell_day 数据的最新服务器
+  for (const server of servers) {
+    const pts = ((DATA_PRICE.data || {})[item] || {})[server] || [];
+    if (pts.some(p => p.x <= sell_day)) return server;
+  }
+  return null;
+}
+
+// 根据参考服务器的开服日期和 sell_day 反推自然日
+function getSellNaturalDate(item, sell_day) {
+  const server = findReferenceServer(item, sell_day);
+  if (!server) return null;
+  const openStr = (DATA_PRICE.open_dates || {})[server];
+  if (!openStr) return null;
+  const d = new Date(openStr);
+  if (isNaN(d)) return null;
+  d.setDate(d.getDate() + sell_day - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// 根据自然日字符串计算某服务器在该日的开服天数（1-based）
+function getServerDaysOnDate(server, naturalDateStr) {
+  const openStr = (DATA_PRICE.open_dates || {})[server];
+  if (!openStr) return null;
+  const open = new Date(openStr);
+  const target = new Date(naturalDateStr);
+  if (isNaN(open) || isNaN(target)) return null;
+  const days = Math.round((target - open) / (1000 * 60 * 60 * 24)) + 1;
+  return days > 0 ? days : null;
+}
+
+// 获取某商品某服务器在指定天数（或其之前最近一天）的最低价
+function getMinPriceNearestAtOrBefore(item, server, day) {
+  const pts = ((DATA_PRICE.data || {})[item] || {})[server] || [];
+  const candidates = pts.filter(p => p.x <= day);
+  if (candidates.length === 0) return null;
+  return candidates.reduce((a, b) => b.x >= a.x ? b : a).min;
+}
+
+// 获取某商品某服务器在精确天数的最低价（无则返回 null）
+function getMinPriceExact(item, server, day) {
+  const pts = ((DATA_PRICE.data || {})[item] || {})[server] || [];
+  const pt = pts.find(p => p.x === day);
+  return pt ? pt.min : null;
+}
+
+// 计算增长率：(min(t) - min(t-2)) / min(t-2)，t-2 缺失时取最近之前记录
+function calcGrowthRate(item, server, t) {
+  const priceAtT = getMinPriceExact(item, server, t);
+  if (priceAtT === null) return null;
+  const priceAtT2 = getMinPriceNearestAtOrBefore(item, server, t - 2);
+  if (priceAtT2 === null || priceAtT2 === 0) return null;
+  return (priceAtT - priceAtT2) / priceAtT2 * 100;
+}
+
+// 生成最低价服务器列表（sell_day 上 min 最低的服务器，同价时列出全部）
+function buildMinServers(item, sell_day) {
+  let minPrice = null;
+  const minSrvs = [];
+  for (const server of (DATA_PRICE.servers || [])) {
+    const pts = ((DATA_PRICE.data || {})[item] || {})[server] || [];
+    const pt = pts.find(p => p.x === sell_day);
+    if (!pt) continue;
+    if (minPrice === null || pt.min < minPrice) {
+      minPrice = pt.min;
+      minSrvs.length = 0;
+      minSrvs.push(server);
+    } else if (pt.min === minPrice) {
+      minSrvs.push(server);
+    }
+  }
+  return minSrvs.length > 0 ? minSrvs.join('\u3001') : '\u2014';
+}
+
+// 生成各服增长率 HTML（基于 sell_day 最低价对应自然日换算各服开服天数）
+// 服务器按开服时间由晚到早排列（心动→飞天→大吉大利→天命）
+function buildGrowthRates(item, sell_day) {
+  const naturalDate = getSellNaturalDate(item, sell_day);
+  if (!naturalDate) return '\u2014';
+  const openDates = DATA_PRICE.open_dates || {};
+  const sortedServers = (DATA_PRICE.servers || []).slice().sort((a, b) =>
+    new Date((openDates[b] || '1900-01-01').split('/').join('-')) -
+    new Date((openDates[a] || '1900-01-01').split('/').join('-'))
+  );
+  const parts = [];
+  for (const server of sortedServers) {
+    const daysOpen = getServerDaysOnDate(server, naturalDate);
+    if (daysOpen === null) continue;
+    const rate = calcGrowthRate(item, server, daysOpen);
+    if (rate === null) continue;
+    const sign = rate >= 0 ? '+' : '';
+    const color = rate > 0 ? '#1a7f37' : rate < 0 ? '#cf222e' : '';
+    const style = color ? ` style="color:${color};font-weight:600"` : '';
+    parts.push(`<span${style}>${server}:${sign}${rate.toFixed(1)}%</span>`);
+  }
+  return parts.length > 0 ? parts.join('\u3000') : '\u2014';
 }
 
 // ── 套利机会总览 ──────────────────────────────────────────────────────────────
@@ -492,10 +606,13 @@ function renderFreezeTable(freeze, rows) {
     });
   const tbody = document.getElementById('arb-' + freeze + '-body');
   if (sorted.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">\u6682\u65e0\u6570\u636e</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="empty-cell">\u6682\u65e0\u6570\u636e</td></tr>';
     return;
   }
-  tbody.innerHTML = sorted.map(r => `
+  tbody.innerHTML = sorted.map(r => {
+    const growthRates = buildGrowthRates(r.item, r.sell_day);
+    const minServers  = buildMinServers(r.item, r.sell_day);
+    return `
     <tr>
       <td>${r.item}</td>
       <td>${r.category}</td>
@@ -504,9 +621,12 @@ function renderFreezeTable(freeze, rows) {
       <td>${r.diff}</td>
       <td>${fmt(r.buy_price)}</td>
       <td>${fmt(r.sell_price)}</td>
+      <td>${minServers}</td>
       <td class="${profitCls(r.profit)}">${fmt(r.profit)}</td>
       <td class="${profitCls(r.profit)}">${fmtPct(r.roi)}</td>
-    </tr>`).join('');
+      <td style="font-size:12px">${growthRates}</td>
+    </tr>`;
+  }).join('');
 }
 
 function renderArbitrage() {
@@ -648,8 +768,6 @@ function saveInventory(items) {
   localStorage.setItem(INV_KEY, JSON.stringify(items));
 }
 
-const SELL_WINDOW = 3;
-
 // 根据开服日期字符串和购买日期字符串，计算购买当天该服的 days_open
 function _purchaseDayOnServer(openDateStr, purchaseDateStr) {
   if (!openDateStr || !purchaseDateStr) return null;
@@ -686,30 +804,22 @@ function computeItemStatus(itemName, buyPrice, purchaseDate) {
   if (roi < 15)
     return { label: '\u672a\u8fbe\u6807', cls: 'inv-hold', roi, cur, future: null };
 
-  // 汇总所有服务器在 days > maxX 的原始价格：{day -> [prices]}
-  const rawByDay = {};
+  // 聚合所有服务器在 days > maxX 的跨服最低价：{day -> min_price}
+  const aggMinByDay = {};
   for (const srv of Object.keys(pts)) {
     for (const p of (pts[srv] || [])) {
-      if (p.x > maxX && p.raw && p.raw.length > 0) {
-        if (!rawByDay[p.x]) rawByDay[p.x] = [];
-        rawByDay[p.x].push(...p.raw);
-      }
+      if (p.x <= maxX) continue;
+      if (aggMinByDay[p.x] === undefined) aggMinByDay[p.x] = p.min;
+      else aggMinByDay[p.x] = Math.min(aggMinByDay[p.x], p.min);
     }
   }
 
-  // 找所有未来卖出日期中 t~t+SELL_WINDOW-1 中位数的最大值
-  const futureDays = Object.keys(rawByDay).map(Number).sort((a, b) => a - b);
-  const maxFutureDay = futureDays.length > 0 ? futureDays[futureDays.length - 1] : -Infinity;
+  // future = 冻结期后最高的跨服聚合最低价
   let future = null;
-  for (const t of futureDays) {
-    if (t > maxFutureDay - (SELL_WINDOW - 1)) continue; // 末尾不足窗口的天数跳过
-    if (t - freezeBase <= freeze) continue;              // 冻结期内不可出售
-    const combined = [];
-    for (let d = t; d < t + SELL_WINDOW; d++) {
-      if (rawByDay[d]) combined.push(...rawByDay[d]);
-    }
-    const med = median(combined);
-    if (med !== null && (future === null || med > future)) future = med;
+  for (const [day, aggMin] of Object.entries(aggMinByDay)) {
+    const t = Number(day);
+    if (t - freezeBase <= freeze) continue;
+    if (future === null || aggMin > future) future = aggMin;
   }
 
   if (future === null)
