@@ -117,6 +117,24 @@ def main():
                     patched += 1
             print(f"  已用心动服今日实际价格修正 {patched} 件商品的买入价快照。")
 
+        # 移除心动服今日有扫描记录但无库存（count=0）的商品，防止其被误认为可买入
+        xd_df["count"] = pd.to_numeric(xd_df["count"], errors="coerce")
+        xd_na_today = xd_df[
+            (xd_df["days_open"] == xindong_days) &
+            (xd_df["_ts"].dt.strftime("%Y%m%d") == date_str) &
+            (xd_df["count"].fillna(0) == 0)
+        ]
+        if not xd_na_today.empty:
+            na_items = xd_na_today["item_name"].unique()
+            remove_mask = (
+                market["item_name"].isin(na_items) &
+                (market["days_open"] == xindong_days)
+            )
+            n_removed = int(remove_mask.sum())
+            if n_removed > 0:
+                market = market[~remove_mask].reset_index(drop=True)
+                print(f"  已移除 {n_removed} 件心动服今日无库存商品的买入候选：{list(na_items)}")
+
     print("计算套利分析…")
     result = build_analysis(market, df_raw=df, fixed_buy_day=xindong_days)
 

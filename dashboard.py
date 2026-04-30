@@ -15,12 +15,14 @@ import pandas as pd
 from paths import ANALYSIS_ROOT, DASHBOARD_HTML
 from arbitrage import FREEZE_DAYS_BY_CATEGORY, DEFAULT_FREEZE_DAYS
 
-_SERVERS = ["大吉大利", "天命", "心动", "飞天"]
+_SERVERS = ["大吉大利", "天命", "心动", "飞天", "来财", "红颜"]
 _SERVER_COLORS = {
     "大吉大利": "#0072B2",
     "天命":     "#E69F00",
     "心动":     "#009E73",
     "飞天":     "#CC3311",
+    "来财":     "#9467BD",
+    "红颜":     "#E377C2",
 }
 _DOW_MAP = {0: "周一", 1: "周二", 2: "周三", 3: "周四", 4: "周五", 5: "周六", 6: "周日"}
 
@@ -372,6 +374,8 @@ thead th.sort-asc::after  { content: ' \u25b2'; font-size: 10px; color: #0969da;
     <span class="srv-item"><span class="srv-line" style="background:#E69F00"></span>天命</span>
     <span class="srv-item"><span class="srv-line" style="background:#009E73"></span>心动</span>
     <span class="srv-item"><span class="srv-line" style="background:#CC3311"></span>飞天</span>
+    <span class="srv-item"><span class="srv-line" style="background:#9467BD"></span>来财</span>
+    <span class="srv-item"><span class="srv-line" style="background:#E377C2"></span>红颜</span>
     <span class="legend-sep"></span>
     <span class="srv-item">
       <span style="display:inline-block;width:18px;height:14px;background:rgba(180,180,180,0.45);border:1px solid #aaa;border-radius:2px;vertical-align:middle"></span>
