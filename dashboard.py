@@ -6,6 +6,7 @@ Dashboard 生成模块
   - 输出 analysis/dashboard.html，可通过 GitHub Pages 发布为公开 URL
 """
 
+import glob
 import json
 import os
 import re
@@ -13,7 +14,7 @@ import re
 import pandas as pd
 
 from paths import ANALYSIS_ROOT, DASHBOARD_HTML
-from arbitrage import FREEZE_DAYS_BY_CATEGORY, DEFAULT_FREEZE_DAYS
+from arbitrage import FREEZE_DAYS_BY_CATEGORY, DEFAULT_FREEZE_DAYS, filter_price_outliers
 
 _SERVERS = ["大吉大利", "天命", "心动", "飞天", "来财", "红颜"]
 _SERVER_COLORS = {
@@ -42,6 +43,9 @@ def _build_price_json(df_raw: pd.DataFrame) -> dict:
         df["count"].notna() & (df["count"] >= 1)
     ].copy()
     df["days_open"] = df["days_open"].astype(int)
+
+    # 统计异常值过滤（与 aggregate_market 保持一致，确保 price trend 也不显示误识别价格）
+    df = filter_price_outliers(df)
 
     # 用 format="mixed" 兼容多种时间戳格式（如 "2026/4/3 14:54" vs "2026-04-02 19:27:28"）
     df["_ts"] = pd.to_datetime(df["timestamp"], errors="coerce", format="mixed")
@@ -102,10 +106,14 @@ def _build_history_json() -> dict:
     if not os.path.isdir(ANALYSIS_ROOT):
         return {"dates": [], "records": []}
 
-    for entry in sorted(os.listdir(ANALYSIS_ROOT), reverse=True):
-        if not re.fullmatch(r"\d{8}", entry):
-            continue
-        csv_path = os.path.join(ANALYSIS_ROOT, entry, "tradeable_opportunities.csv")
+    all_day_dirs = sorted(
+        glob.glob(os.path.join(ANALYSIS_ROOT, "????", "??", "??")),
+        reverse=True
+    )
+    for day_dir in all_day_dirs:
+        parts = os.path.normpath(day_dir).split(os.sep)
+        entry = "".join(parts[-3:])  # reconstruct YYYYMMDD
+        csv_path = os.path.join(day_dir, "tradeable_opportunities.csv")
         if not os.path.isfile(csv_path):
             continue
         try:

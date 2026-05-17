@@ -38,7 +38,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from paths import DATA_ROOT, ANALYSIS_ROOT
+from paths import DATA_ROOT, ANALYSIS_ROOT, date_to_dir
 from arbitrage import load_all_source_csvs, aggregate_market, build_analysis, export_xlsx
 from dashboard import build_dashboard_html
 
@@ -71,7 +71,7 @@ def main():
 
     # 找出心动服在 date_str 当天的开服天数（需在 build_analysis 前确定）
     xindong_days = None
-    today_dir = os.path.join(DATA_ROOT, date_str)
+    today_dir = date_to_dir(DATA_ROOT, date_str)
     if os.path.isdir(today_dir):
         for path in glob.glob(os.path.join(today_dir, "*.csv")):
             try:
@@ -138,7 +138,7 @@ def main():
     print("计算套利分析…")
     result = build_analysis(market, df_raw=df, fixed_buy_day=xindong_days)
 
-    out_dir = os.path.join(ANALYSIS_ROOT, date_str)
+    out_dir = date_to_dir(ANALYSIS_ROOT, date_str)
     os.makedirs(out_dir, exist_ok=True)
 
     # 完整明细（买入天数已限定为心动当前开服天数）

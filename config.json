@@ -46,12 +46,21 @@
                               "番天印精华","惊魂铃精华"],
                        "高级内丹":["碎甲刃","舍身击", "隐匿击", "生死决","黄泉饮","电魂闪","通灵法",
                                   "双星爆", "催心浪", "血债偿","轮回破","风雷汇","神机步","腾挪劲",
-                                  "龙魂玉","阴阳护","仁者心","御初尘","敛心神"],
+                                  "玄武躯","龙魂玉","阴阳护","仁者心","御初尘","敛心神"],
                         "低级内丹":["迅敏","狂怒","阴伤","连环","勘破","无畏","愤恨","奇袭",
                                   "焦渴", "静岳", "擅咒", "灵光", "灵身", "狙刺", "圣洁", "顺势","矫健",
                                   "御法", "坚甲", "慧心", "自然", "护佑", "了然"] },
                                 
   "ocr_confidence_threshold": 0.7,
   "use_gpu": false,
-  "output_dir": "data"
+  "output_dir": "data",
+  "monitor": {
+    "item":                   "神兜兜",
+    "parent_category":        "奇珍异宝",
+    "price_threshold":        74000,
+    "min_valid_price":        40000,
+    "interval_seconds":       7,
+    "alert_cooldown_seconds": 300,
+    "serverchan_sckey":       "SCT344322TsoWrCcl3dfAVB4vQJUTGgMSS"
+  }
 }

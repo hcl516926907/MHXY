@@ -35,28 +35,30 @@ def load_all_source_csvs(up_to_date: str) -> pd.DataFrame:
     """
     读取 DATA_ROOT 下所有日期目录（≤ up_to_date）中的全部 CSV 文件。
     up_to_date 为 YYYYMMDD 格式字符串。
+    目录结构为 data/YYYY/MM/DD/。
     """
-    import re
     if not os.path.isdir(DATA_ROOT):
         raise FileNotFoundError(f"未找到数据根目录 data/，请确认路径配置正确。")
 
-    date_dirs = sorted(
-        d for d in os.listdir(DATA_ROOT)
-        if re.fullmatch(r"\d{8}", d) and d <= up_to_date
-    )
+    # glob: ???? = 4-char year, ?? = 2-char month, ?? = 2-char day
+    all_day_dirs = sorted(glob.glob(os.path.join(DATA_ROOT, "????", "??", "??")))
+    date_dirs = [
+        d for d in all_day_dirs
+        if "".join(os.path.normpath(d).split(os.sep)[-3:]) <= up_to_date
+    ]
     if not date_dirs:
         raise FileNotFoundError(
             f"data/ 下没有日期 ≤ {up_to_date} 的目录，请确认已扫描过数据。"
         )
 
     frames = []
-    for d in date_dirs:
-        dir_path = os.path.join(DATA_ROOT, d)
+    for dir_path in date_dirs:
+        date_key = "".join(os.path.normpath(dir_path).split(os.sep)[-3:])
         for path in glob.glob(os.path.join(dir_path, "*.csv")):
             try:
                 frames.append(pd.read_csv(path, encoding="utf-8-sig"))
             except Exception as e:
-                print(f"  [警告] 跳过文件 {d}/{os.path.basename(path)}：{e}")
+                print(f"  [警告] 跳过文件 {date_key}/{os.path.basename(path)}：{e}")
 
     if not frames:
         raise ValueError("所有 CSV 文件均读取失败。")
@@ -65,8 +67,35 @@ def load_all_source_csvs(up_to_date: str) -> pd.DataFrame:
     # 修正历史 CSV 中可能存在的 OCR 误识别字符（如繁体字形 強→强）
     if "item_name" in df.columns:
         df["item_name"] = df["item_name"].astype(str).map(normalize_ocr_text)
-    print(f"  已读取 {len(date_dirs)} 个日期目录（{date_dirs[0]} ~ {date_dirs[-1]}）")
+    first = "".join(os.path.normpath(date_dirs[0]).split(os.sep)[-3:])
+    last  = "".join(os.path.normpath(date_dirs[-1]).split(os.sep)[-3:])
+    print(f"  已读取 {len(date_dirs)} 个日期目录（{first} ~ {last}）")
     return df
+
+
+def filter_price_outliers(df: pd.DataFrame, ratio: float = 5.0) -> pd.DataFrame:
+    """
+    按 item_name 分组，剔除 min_price 偏离同商品中位数超过 ratio 倍的行。
+
+    中位数对稀疏离群值具有鲁棒性：少量 OCR 误识别不会拉偏中位数，
+    从而可准确识别 10000 → 100 / 1000 这类丢失数位的错误。
+    ratio=5 意味着允许最大 5 倍价差（跨服合理范围约 2~3 倍），
+    同时能过滤 10 倍 / 100 倍的 OCR 误读。
+    """
+    if df.empty:
+        return df
+    medians = df.groupby("item_name")["min_price"].transform("median")
+    mask = (df["min_price"] >= medians / ratio) & (df["min_price"] <= medians * ratio)
+    n_removed = int((~mask).sum())
+    if n_removed > 0:
+        cols = [c for c in ["item_name", "server_name", "days_open", "min_price"]
+                if c in df.columns]
+        bad = df.loc[~mask, cols].drop_duplicates()
+        for _, r in bad.iterrows():
+            srv = f" [{r['server_name']}]" if "server_name" in r.index else ""
+            day = f" 第{int(r['days_open'])}天" if "days_open" in r.index else ""
+            print(f"  [异常价格] 剔除{srv}{day} {r['item_name']} min_price={int(r['min_price'])}")
+    return df[mask].copy()
 
 
 def aggregate_market(df: pd.DataFrame) -> pd.DataFrame:
@@ -74,7 +103,7 @@ def aggregate_market(df: pd.DataFrame) -> pd.DataFrame:
     将原始多服务器数据按 (item_name, category, days_open) 聚合：
       avg_price = 所有服务器均价的均值
       min_price = 所有服务器最低价的最小值
-    聚合前过滤掉价格无效或挂单数不足 1 件的行。
+    聚合前过滤掉价格无效或挂单数不足 1 件的行，并剔除统计异常值。
     """
     df = df.copy()
     df["avg_price"] = pd.to_numeric(df["avg_price"], errors="coerce")
@@ -90,6 +119,9 @@ def aggregate_market(df: pd.DataFrame) -> pd.DataFrame:
         df["days_open"].notna() &
         df["count"].notna() & (df["count"] >= 1)
     ].copy()
+
+    # 统计异常值过滤（剔除偏离同商品中位数过大的 OCR 误识别价格）
+    df = filter_price_outliers(df)
 
     market = (
         df.groupby(["item_name", "category", "days_open"], as_index=False)

@@ -3,10 +3,12 @@ import os
 from datetime import datetime
 from typing import List, Optional
 
+from paths import date_to_dir
+
 
 def _csv_path(output_dir: str, server_name: str) -> str:
     today = datetime.now().strftime("%Y%m%d")
-    day_dir = os.path.join(output_dir, today)
+    day_dir = date_to_dir(output_dir, today)
     os.makedirs(day_dir, exist_ok=True)
     return os.path.join(day_dir, f"{today}_{server_name}.csv")
 
