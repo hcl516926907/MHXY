@@ -31,6 +31,7 @@
 """
 
 import os
+import sys
 import glob
 import re
 import subprocess
@@ -41,6 +42,30 @@ import pandas as pd
 from paths import DATA_ROOT, ANALYSIS_ROOT, date_to_dir
 from arbitrage import load_all_source_csvs, aggregate_market, build_analysis, export_xlsx
 from dashboard import build_dashboard_html
+
+
+REQUIRED_SERVERS = ["心动", "飞天", "大吉大利", "天命", "来财", "红颜"]
+
+
+def check_today_data(date_str: str) -> None:
+    """检查 date_str 对应的数据目录是否包含所有必要服务器的 CSV 文件。"""
+    today_dir = date_to_dir(DATA_ROOT, date_str)
+    if not os.path.isdir(today_dir):
+        sys.exit(f"[错误] 数据目录不存在：{today_dir}\n  请先完成今日扫描再运行分析。")
+
+    found = set()
+    for path in glob.glob(os.path.join(today_dir, f"{date_str}_*.csv")):
+        name = os.path.basename(path)[len(date_str) + 1:-4]
+        found.add(name)
+
+    missing = [s for s in REQUIRED_SERVERS if s not in found]
+    if missing:
+        sys.exit(
+            f"[错误] 以下服务器今日（{date_str}）尚无扫描数据：{missing}\n"
+            f"  已有数据的服务器：{sorted(found)}\n"
+            "  请完成扫描后再运行分析。"
+        )
+    print(f"  数据完整性检查通过：{REQUIRED_SERVERS} 均有今日数据。")
 
 
 def prompt_date() -> str:
@@ -58,6 +83,9 @@ def prompt_date() -> str:
 def main():
     date_str = prompt_date()
     print(f"\n分析日期：{date_str}")
+
+    print("检查今日数据完整性…")
+    check_today_data(date_str)
 
     print("读取原始数据（当前及历史）…")
     df = load_all_source_csvs(date_str)

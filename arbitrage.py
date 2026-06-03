@@ -120,6 +120,13 @@ def aggregate_market(df: pd.DataFrame) -> pd.DataFrame:
         df["count"].notna() & (df["count"] >= 1)
     ].copy()
 
+    # 过滤无法识别名称的记录，防止"未知"进入分析结果
+    df = df[
+        df["item_name"].notna() &
+        (df["item_name"].str.strip() != "") &
+        (df["item_name"] != "未知")
+    ].copy()
+
     # 统计异常值过滤（剔除偏离同商品中位数过大的 OCR 误识别价格）
     df = filter_price_outliers(df)
 
